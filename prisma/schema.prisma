@@ -1,0 +1,26 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+model User {
+  id        String     @id @default(cuid())
+  email     String     @unique
+  name      String?
+  documents Document[]
+}
+model Document {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  name       String
+  type       String
+  size       Int
+  status     String   @default("Processed")
+  uploadedAt DateTime @default(now())
+  storageKey String
+  publicUrl  String
+  @@index([userId, uploadedAt])
+}
