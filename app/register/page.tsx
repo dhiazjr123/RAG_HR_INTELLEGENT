@@ -104,13 +104,13 @@ export default function RegisterPage() {
   };
 
   return (
-    <main className="min-h-screen grid grid-cols-1 md:grid-cols-2">
+    <main className="min-h-screen grid grid-cols-1 md:grid-cols-2 bg-figma-auth text-white">
       <AuthIllustration />
 
       {/* kanan: form */}
-      <div className="flex items-center justify-center bg-gradient-to-b from-background to-muted/40 p-8">
+      <div className="flex items-center justify-center p-8">
         <div className="w-full max-w-md">
-          <h1 className="text-3xl font-semibold text-center mb-8">Sign Up</h1>
+          <h1 className="text-3xl font-semibold text-center mb-8 text-white">Sign Up</h1>
 
           <form onSubmit={onSubmit} className="space-y-4" autoComplete="off">
             {/* ===== Autofill trap: biar Chrome isi di sini, bukan field kita ===== */}
@@ -263,7 +263,7 @@ export default function RegisterPage() {
             <button
               type="submit"
               disabled={loading || mismatch}
-              className="w-full rounded-md btn-gradient py-2 text-sm font-medium transition-all duration-300 ease-in-out hover:scale-105 hover:shadow-lg active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
+              className="w-full rounded-md btn-figma py-2 text-sm font-medium transition-all duration-300 ease-in-out hover:scale-105 hover:shadow-lg active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
               {loading ? (
                 <span className="flex items-center justify-center gap-2">

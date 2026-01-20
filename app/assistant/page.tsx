@@ -9,7 +9,7 @@ import AssistantWorkspace from "@/components/assistant-workspace"; // ⬅️ def
 export default function AssistantPage() {
   return (
     <DocumentsProvider>
-      <div className="min-h-screen page-gradient">
+      <div className="min-h-screen bg-figma-auth">
         <Header />
         <div className="flex">
           <Sidebar />

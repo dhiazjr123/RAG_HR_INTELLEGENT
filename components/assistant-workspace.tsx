@@ -1,17 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
-  Send, Bot, User, FileText, Download, Copy, Check, ChevronDown, ChevronRight, Play
+  Send, Bot, User, FileText, Download, Copy, ChevronDown, ChevronRight, ChevronLeft
 } from "lucide-react";
 import { useDocuments } from "@/components/documents-context";
 import FileUploadButton from "@/components/file-upload-button";
 import { cn } from "@/lib/utils";
+import { TabsContainer } from "@/components/ui/tabs";
+import { createClient } from "@/lib/supabase/client";
 // Client-side PDF parsing (avoid server worker issues)
 // We import lazily inside the function to keep SSR clean
 
@@ -192,9 +194,7 @@ export default function AssistantWorkspace() {
       });
     }
   }, [documents, parsedById]);
-  const [extractedById, setExtractedById] = useState<Record<string, Record<string, string>>>({});
   const parsedBlocks = currentId ? parsedById[currentId] ?? [] : [];
-  const extracted = currentId ? extractedById[currentId] ?? {} : {};
 
   // Expand state per block
   const [openBlocks, setOpenBlocks] = useState<Record<string, Record<string, boolean>>>({});
@@ -202,8 +202,6 @@ export default function AssistantWorkspace() {
 
   // Loading flags
   const [isParsing, setIsParsing] = useState(false);
-  const [isExtracting, setIsExtracting] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   // Notifications
   const [notifications, setNotifications] = useState<Array<{
@@ -216,6 +214,51 @@ export default function AssistantWorkspace() {
   // Chat
   const [input, setInput] = useState("");
   const [msgs, setMsgs] = useState<Msg[]>([]);
+  const [chatStorageKey, setChatStorageKey] = useState<string | null>(null);
+
+  // Tentukan key penyimpanan berdasarkan user Supabase (per HR)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    (async () => {
+      try {
+        const supabase = createClient();
+        const { data } = await supabase.auth.getUser();
+        const userId = data.user?.id;
+        const key = userId ? `rag_chat_history_v1_${userId}` : "rag_chat_history_v1_guest";
+        setChatStorageKey(key);
+
+        // Load riwayat jika ada
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const parsed = JSON.parse(raw) as Msg[];
+          if (Array.isArray(parsed)) {
+            setMsgs(parsed);
+          }
+        }
+      } catch (e) {
+        console.warn("Gagal inisialisasi riwayat chat:", e);
+      }
+    })();
+  }, []);
+
+  // Simpan riwayat setiap ada perubahan pesan
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!chatStorageKey) return;
+    try {
+      localStorage.setItem(chatStorageKey, JSON.stringify(msgs));
+    } catch (e) {
+      console.warn("Gagal simpan riwayat chat:", e);
+    }
+  }, [msgs, chatStorageKey]);
+
+  // Tab state untuk panel kanan
+  const [activeTab, setActiveTab] = useState<"parse" | "chat">("chat");
+
+  // PDF page navigation
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
 
   /* ===== Handlers ===== */
 
@@ -291,18 +334,6 @@ export default function AssistantWorkspace() {
       alert(e.message || "Ingest error");
     } finally {
       setIsParsing(false);
-    }
-  };
-
-  /** Extract mock (metadata) */
-  const runExtract = async () => {
-    if (!currentDoc?.file || !currentId) return alert("Pilih dokumen yang punya file.");
-    setIsExtracting(true);
-    try {
-      const data = await mockExtract(currentDoc.file);
-      setExtractedById((prev) => ({ ...prev, [currentId]: data }));
-    } finally {
-      setIsExtracting(false);
     }
   };
 
@@ -435,300 +466,418 @@ export default function AssistantWorkspace() {
     }
   };
 
+  /** Hapus seluruh riwayat chat (state + localStorage) */
+  const handleClearChat = () => {
+    if (typeof window === "undefined") return;
+    if (!chatStorageKey) {
+      setMsgs([]);
+      return;
+    }
+
+    const ok = window.confirm("Hapus semua riwayat chat di AI Assistant ini?");
+    if (!ok) return;
+
+    try {
+      localStorage.removeItem(chatStorageKey);
+    } catch (e) {
+      console.warn("Gagal menghapus riwayat chat dari localStorage:", e);
+    }
+    setMsgs([]);
+  };
+
   /* ===== Komponen kecil ===== */
   const Separator = () => <div className="w-full h-px bg-border" />;
 
 
-  function PreviewPane() {
-    if (!currentDoc) return null;
-    const ext = (currentDoc.name.split(".").pop() || "").toLowerCase();
-    const isPDF = ext === "pdf";
-    const isImg = ["png", "jpg", "jpeg", "gif", "webp"].includes(ext);
-
-    if (isPDF && previewUrl) {
-      return <iframe src={previewUrl} className="w-full h-[260px] rounded-md border border-border" />;
+  // Update PDF pages when document changes
+  useEffect(() => {
+    if (currentDoc?.file && previewUrl) {
+      const ext = (currentDoc.name.split(".").pop() || "").toLowerCase();
+      if (ext === "pdf") {
+        // Try to get total pages from PDF
+        const loadPdfPages = async () => {
+          try {
+            const { getDocument } = (await import("pdfjs-dist")) as any;
+            const buf = new Uint8Array(await currentDoc.file!.arrayBuffer());
+            const pdf = await getDocument({ data: buf, disableWorker: true }).promise;
+            setTotalPages(pdf.numPages);
+            setCurrentPage(1);
+          } catch (e) {
+            console.warn("Could not load PDF pages:", e);
+            setTotalPages(1);
+          }
+        };
+        loadPdfPages();
+      }
     }
-    if (isImg && previewUrl) {
-      // eslint-disable-next-line @next/next/no-img-element
-      return <img src={previewUrl} alt={currentDoc.name} className="w-full max-h-[260px] object-contain rounded-md border border-border" />;
-    }
-    return (
-      <div className="text-xs text-muted-foreground">
-        Preview tidak tersedia untuk .{ext}. (Saran: konversi ke PDF.)
-      </div>
-    );
-  }
+  }, [currentDoc?.file, previewUrl]);
 
-  /* ===== UI: NotebookLM-style (Sumber | Chat | Studio) ===== */
+  const handlePrevPage = useCallback(() => {
+    setCurrentPage((p) => Math.max(1, p - 1));
+  }, []);
+
+  const handleNextPage = useCallback(() => {
+    setCurrentPage((p) => Math.min(totalPages, p + 1));
+  }, [totalPages]);
+
+  const handleDownload = useCallback(() => {
+    if (!previewUrl || !currentDoc) return;
+    const a = document.createElement("a");
+    a.href = previewUrl;
+    a.download = currentDoc.name;
+    a.click();
+  }, [previewUrl, currentDoc]);
+
+  const CvPreviewPane = useMemo(
+    () =>
+      memo(function CvPreviewPaneInner(props: {
+        doc: typeof currentDoc;
+        url: string | null;
+        page: number;
+        pages: number;
+        onPrev: () => void;
+        onNext: () => void;
+        onDownload: () => void;
+      }) {
+        const { doc, url, page, pages, onPrev, onNext, onDownload } = props;
+
+        if (!doc || !url) {
+          return (
+            <div className="flex items-center justify-center h-full text-muted-foreground">
+              <div className="text-center">
+                <FileText className="h-16 w-16 mx-auto mb-4 opacity-50" />
+                <p className="text-sm">Pilih dokumen untuk melihat preview</p>
+                <p className="text-xs mt-2 opacity-75">Upload CV di header untuk memulai</p>
+              </div>
+            </div>
+          );
+        }
+
+        const ext = (doc.name.split(".").pop() || "").toLowerCase();
+        const isPDF = ext === "pdf";
+        const isImg = ["png", "jpg", "jpeg", "gif", "webp"].includes(ext);
+
+        return (
+          <div className="flex flex-col h-full">
+            {/* Header Controls */}
+            <div className="flex items-center justify-between p-4 border-b border-border bg-card/50">
+              <div className="flex items-center gap-3 min-w-0">
+                <FileText className="h-5 w-5 text-muted-foreground" />
+                <div className="flex flex-col min-w-0">
+                  <span className="text-sm font-medium text-foreground truncate max-w-[300px]">{doc.name}</span>
+                  {isPDF && (
+                    <span className="text-xs text-muted-foreground">
+                      Halaman {page} / {pages}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {isPDF && (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={onPrev}
+                      disabled={page === 1}
+                      className="h-8 w-8 p-0"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={onNext}
+                      disabled={page === pages}
+                      className="h-8 w-8 p-0"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </>
+                )}
+                <Button variant="ghost" size="sm" onClick={onDownload} className="h-8 w-8 p-0">
+                  <Download className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-auto bg-muted/20 p-4">
+              {isPDF ? (
+                <div className="flex justify-center h-full">
+                  <iframe
+                    src={`${url}#page=${page}`}
+                    className="w-full h-full rounded-md border border-border bg-white shadow-lg"
+                    style={{ minHeight: "600px" }}
+                  />
+                </div>
+              ) : isImg ? (
+                <div className="flex justify-center">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={url}
+                    alt={doc.name}
+                    className="max-w-full max-h-full object-contain rounded-md border border-border shadow-lg"
+                  />
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full text-muted-foreground">
+                  <div className="text-center">
+                    <FileText className="h-16 w-16 mx-auto mb-4 opacity-50" />
+                    <p className="text-sm">Preview tidak tersedia untuk .{ext}</p>
+                    <p className="text-xs mt-2 opacity-75">Saran: konversi ke PDF</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      }),
+    []
+  );
+
+  /* ===== UI: Split View (PDF Preview Kiri | Tabs Kanan) ===== */
   return (
-    <div className="min-h-screen page-gradient">
+    <div className="min-h-screen page-gradient flex flex-col">
       {/* Header */}
       <div className="border-b border-border bg-card/70 glass soft-shadow">
         <div className="flex h-16 items-center justify-between px-6">
           <div className="flex items-center gap-4">
-            <h1 className="text-xl font-semibold text-gradient">Document AI Assistant</h1>
+            <h1 className="text-xl font-semibold text-gradient">AI Assistant Workspace</h1>
+          </div>
+          <div className="flex items-center gap-3">
+            {/* Document Selector */}
+            {documents.length > 0 && (
+              <div className="flex items-center gap-2">
+                <select
+                  value={currentId || ""}
+                  onChange={(e) => setCurrentId(e.target.value)}
+                  className="px-3 py-1.5 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  {documents.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name} {d.status === "Processed" ? "✓" : "⏳"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <FileUploadButton
+              onSelectFiles={onUpload}
+              label="Upload CV"
+              size="sm"
+              variant="default"
+              className="gap-2 btn-gradient"
+              multiple
+            />
           </div>
         </div>
       </div>
 
-      <main className="p-4 md:p-6 overflow-auto">
-        {/* Notifications */}
-        {notifications.length > 0 && (
-          <div className="fixed top-20 right-4 z-50 space-y-2">
-            {notifications.map((notification) => (
-              <div
-                key={notification.id}
-                className={`px-4 py-3 rounded-lg shadow-lg border backdrop-blur-sm max-w-sm transform transition-all duration-300 ease-in-out animate-in slide-in-from-right-5 ${
-                  notification.type === 'success'
-                    ? 'bg-emerald-500/90 text-white border-emerald-400'
-                    : 'bg-red-500/90 text-white border-red-400'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <div className="text-sm font-medium">{notification.message}</div>
-                </div>
+      {/* Notifications */}
+      {notifications.length > 0 && (
+        <div className="fixed top-20 right-4 z-50 space-y-2">
+          {notifications.map((notification) => (
+            <div
+              key={notification.id}
+              className={`px-4 py-3 rounded-lg shadow-lg border backdrop-blur-sm max-w-sm transform transition-all duration-300 ease-in-out animate-in slide-in-from-right-5 ${
+                notification.type === 'success'
+                  ? 'bg-emerald-500/90 text-white border-emerald-400'
+                  : 'bg-red-500/90 text-white border-red-400'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <div className="text-sm font-medium">{notification.message}</div>
               </div>
-            ))}
-          </div>
-        )}
-        
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-
-        {/* ========== SUMBER (kiri) ========== */}
-        <Card className="lg:col-span-3 bg-card/70 glass soft-shadow hover-card flex flex-col">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Sumber</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <div className="flex items-center gap-2">
-              <FileUploadButton
-                onSelectFiles={onUpload}
-                label="Tambah"
-                size="sm"
-                variant="outline"
-                className="gap-2"
-                multiple
-              />
             </div>
+          ))}
+        </div>
+      )}
 
-            <Separator />
+      {/* Main Split View */}
+      <main className="flex-1 flex overflow-hidden h-[calc(100vh-4rem)]">
+        {/* ========== LEFT PANEL: PDF Preview ========== */}
+        <div className="w-1/2 border-r border-border bg-card/50 flex flex-col overflow-hidden">
+          <CvPreviewPane
+            doc={currentDoc}
+            url={previewUrl}
+            page={currentPage}
+            pages={totalPages}
+            onPrev={handlePrevPage}
+            onNext={handleNextPage}
+            onDownload={handleDownload}
+          />
+        </div>
 
-            <div className="space-y-2">
-              {documents.length ? (
-                documents.map((d) => (
-                  <button
-                    key={d.id}
-                    onClick={() => setCurrentId(d.id)}
-                    className={`w-full text-left px-3 py-2 rounded-md border text-sm transition
-                    ${currentId === d.id
-                      ? "btn-gradient border-primary"
-                      : "border-border hover:bg-muted/40"}`}
-                    title={`${d.name} — ${d.status ?? ""}`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="truncate">{d.name}</span>
-                      {d.status && (
-                        <Badge 
-                          variant={d.status === "Processed" ? "default" : "outline"} 
-                          className={cn("ml-2", d.status === "Processed" && "btn-gradient")}
-                        >
-                          {d.status}
-                        </Badge>
-                      )}
-                    </div>
-                  </button>
-                ))
-              ) : (
-                <div className="text-xs text-muted-foreground">Belum ada sumber. Klik <b>Tambah</b> untuk mengunggah file.</div>
-              )}
-            </div>
-
-            <Separator />
-            {currentDoc && (
-              <div className="space-y-2">
-                <div className="text-xs text-muted-foreground">Pratinjau</div>
-                <PreviewPane />
-                {previewUrl && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="w-full"
-                    onClick={() => {
-                      const a = document.createElement("a");
-                      a.href = previewUrl!;
-                      a.download = currentDoc.name;
-                      a.click();
-                    }}
-                  >
-                    <Download className="h-4 w-4 mr-2" /> Download
-                  </Button>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* ========== CHAT (tengah) ========== */}
-        <Card className="lg:col-span-6 bg-card/70 glass soft-shadow hover-card flex flex-col min-h-[70vh]">
-          <CardHeader className="pb-2">
-            <div className="flex items-center gap-2">
-              <Bot className="h-5 w-5" />
-              <CardTitle className="text-base">Chat</CardTitle>
-              {currentDoc && <Badge variant="outline" className="ml-2">{currentDoc.name}</Badge>}
-            </div>
-          </CardHeader>
-
-          <CardContent className="pt-4 flex-1 overflow-auto space-y-4">
-            {msgs.length === 0 ? (
-              <div className="text-sm text-muted-foreground text-center py-8">
-                <Bot className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                <p>Halo! Bagaimana saya dapat membantu Anda hari ini?</p>
-                <p className="mt-2 text-xs opacity-75">• Upload dokumen di panel "Sumber" untuk chat dengan konteks</p>
-                <p className="text-xs opacity-75">• Atau langsung tanyakan apapun di sini</p>
-              </div>
-            ) : (
-              msgs.map((m) => (
-                <div
-                  key={m.id}
-                  className={`flex items-start gap-3 ${m.role === "user" ? "justify-end" : "justify-start"}`}
-                >
-                  {m.role === "assistant" && (
-                    <div className="mt-1 rounded-full p-2 bg-muted/50">
-                      <Bot className="h-4 w-4" />
-                    </div>
-                  )}
-                  <div
-                    className={`max-w-[80%] rounded-2xl px-4 py-2 text-sm leading-relaxed ${
-                      m.role === "user"
-                        ? "bg-primary text-primary-foreground rounded-br-sm"
-                        : "bg-muted/40 text-foreground rounded-bl-sm"
-                    }`}
-                  >
-                    {m.text}
-                  </div>
-                  {m.role === "user" && (
-                    <div className="mt-1 rounded-full p-2 bg-muted/50">
-                      <User className="h-4 w-4" />
-                    </div>
-                  )}
-                </div>
-              ))
-            )}
-          </CardContent>
-
-          <div className="p-4 border-t border-border flex items-end gap-3">
-            <Textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Tulis prompt kamu…"
-              className="min-h-[64px] resize-none flex-1"
-              onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) sendChat(); }}
-            />
-            <Button className="gap-2 btn-gradient" onClick={sendChat} disabled={isParsing}>
-              <Send className="h-4 w-4" />
-              Kirim
-            </Button>
-          </div>
-        </Card>
-
-        {/* ========== STUDIO (kanan) ========== */}
-        <div className="lg:col-span-3 space-y-4">
-          {/* Kartu Parse */}
-          <Card className="bg-card/70 glass soft-shadow hover-card">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Parse</CardTitle>
-                <div className="text-xs text-muted-foreground">
-                  Auto-parse saat upload
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {parsedBlocks.length ? (
-                <div className="max-h-[260px] overflow-auto space-y-2 pr-1">
-                  {parsedBlocks.map((b) => {
-                    const isOpen = blockOpen(b.id);
-                    return (
-                      <div key={b.id} className="rounded-md border border-border/60">
-                        <button
-                          className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium"
-                          onClick={() =>
-                            setOpenBlocks((prev) => ({
-                              ...prev,
-                              [currentId!]: { ...(prev[currentId!] ?? {}), [b.id]: !isOpen },
-                            }))
-                          }
-                        >
-                          <span className="truncate">{b.label}</span>
-                          {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                        </button>
-                        {isOpen && (
-                          <div className="px-3 pb-3">
-                            <pre className="whitespace-pre-wrap text-xs">{b.content}</pre>
-                            <div className="pt-2">
-                              <Button
-                                variant="ghost" size="sm"
-                                onClick={async () => await navigator.clipboard.writeText(b.content)}
-                              >
-                                <Copy className="h-4 w-4 mr-1" /> Copy
-                              </Button>
-                            </div>
+        {/* ========== RIGHT PANEL: Tabs (Parse, Preview, Extract, Chat) ========== */}
+        <div className="w-1/2 bg-card/50 flex flex-col overflow-hidden">
+          <div className="flex-1 overflow-hidden p-6 flex flex-col min-h-0">
+            <TabsContainer
+              value={activeTab}
+              onValueChange={(v) => setActiveTab(v as typeof activeTab)}
+              className="flex-1 flex flex-col min-h-0"
+              tabs={[
+                {
+                  value: "parse",
+                  label: "Parse",
+                  content: (
+                    <div className="h-full flex flex-col">
+                      <div className="mb-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="text-sm font-medium text-muted-foreground">Hasil Parsing</h3>
+                          <Badge variant="outline" className="text-xs">
+                            {parsedBlocks.length} blok
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Auto-parse saat upload dokumen
+                        </p>
+                      </div>
+                      <div className="flex-1 overflow-auto space-y-2 pr-2">
+                        {parsedBlocks.length > 0 ? (
+                          parsedBlocks.map((b) => {
+                            const isOpen = blockOpen(b.id);
+                            return (
+                              <div key={b.id} className="rounded-md border border-border/60 bg-card">
+                                <button
+                                  className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium hover:bg-muted/50 transition-colors"
+                                  onClick={() =>
+                                    setOpenBlocks((prev) => ({
+                                      ...prev,
+                                      [currentId!]: { ...(prev[currentId!] ?? {}), [b.id]: !isOpen },
+                                    }))
+                                  }
+                                >
+                                  <span className="truncate">{b.label}</span>
+                                  {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                                </button>
+                                {isOpen && (
+                                  <div className="px-3 pb-3 border-t border-border/50">
+                                    <pre className="whitespace-pre-wrap text-xs mt-2 mb-2 font-mono bg-muted/30 p-2 rounded">{b.content}</pre>
+                                    <Button
+                                      variant="ghost" size="sm"
+                                      onClick={async () => await navigator.clipboard.writeText(b.content)}
+                                      className="h-7"
+                                    >
+                                      <Copy className="h-3 w-3 mr-1" /> Copy
+                                    </Button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <div className="text-xs text-muted-foreground text-center py-8">
+                            Belum ada hasil parsing. Upload dokumen untuk memulai.
                           </div>
                         )}
                       </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="text-xs text-muted-foreground">Belum ada hasil. Unggah file untuk auto-parse.</div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Kartu Extract */}
-          <Card className="bg-card/70 glass soft-shadow hover-card">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Extract</CardTitle>
-                <Button size="sm" variant="secondary" onClick={runExtract} disabled={!currentDoc?.file || isExtracting} className="gap-2">
-                  <Play className="h-4 w-4" />
-                  {isExtracting ? "Extracting..." : "Jalankan"}
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {Object.keys(extracted).length ? (
-                <div className="space-y-3 max-h-[260px] overflow-auto pr-1">
-                  <table className="w-full text-xs">
-                    <tbody>
-                      {Object.entries(extracted).map(([k, v]) => (
-                        <tr key={k} className="border-b border-border/50">
-                          <td className="py-1.5 pr-2 font-medium whitespace-nowrap">{k}</td>
-                          <td className="py-1.5 text-muted-foreground">{v}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-
-                  <Button
-                    variant="ghost" size="sm"
-                    onClick={async () => {
-                      await navigator.clipboard.writeText(JSON.stringify(extracted, null, 2));
-                      setCopied(true); setTimeout(() => setCopied(false), 1200);
-                    }}
-                  >
-                    {copied ? <Check className="h-4 w-4 mr-1" /> : <Copy className="h-4 w-4 mr-1" />}
-                    {copied ? "Copied" : "Copy JSON"}
-                  </Button>
-                </div>
-              ) : (
-                <div className="text-xs text-muted-foreground">Belum ada hasil. Klik <b>Jalankan</b> untuk mengekstrak metadata sederhana.</div>
-              )}
-            </CardContent>
-          </Card>
+                    </div>
+                  ),
+                },
+                {
+                  value: "chat",
+                  label: "Chat",
+                  content: (
+                    <div className="h-full flex flex-col">
+                      <Card className="flex-1 flex flex-col bg-transparent border-0 shadow-none">
+                        <CardContent className="flex-1 overflow-auto space-y-4 pt-4 pb-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                              Riwayat Chat
+                            </p>
+                            {msgs.length > 0 && (
+                              <Button
+                                variant="outline"
+                                size="xs"
+                                onClick={handleClearChat}
+                                className="text-xs h-7 px-2 py-1 hover:bg-destructive/10 hover:text-destructive border-destructive/40"
+                              >
+                                Hapus riwayat
+                              </Button>
+                            )}
+                          </div>
+                          {msgs.length === 0 ? (
+                            <div className="text-sm text-muted-foreground text-center py-8">
+                              <Bot className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                              <p className="font-medium">Halo! Bagaimana saya dapat membantu Anda hari ini?</p>
+                              <p className="mt-4 text-xs opacity-75">• Upload CV di header untuk chat dengan konteks</p>
+                              <p className="text-xs opacity-75">• Atau langsung tanyakan apapun di sini</p>
+                              {documents.length > 0 && (
+                                <div className="mt-4 p-3 bg-muted/30 rounded-md text-xs">
+                                  <p className="font-medium mb-1">Dokumen yang tersedia:</p>
+                                  <ul className="list-disc list-inside space-y-1">
+                                    {documents.map((d) => (
+                                      <li key={d.id} className="truncate">
+                                        {d.name} {d.status === "Processed" ? "✓" : "⏳"}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            msgs.map((m) => (
+                              <div
+                                key={m.id}
+                                className={`flex items-start gap-3 ${m.role === "user" ? "justify-end" : "justify-start"}`}
+                              >
+                                {m.role === "assistant" && (
+                                  <div className="mt-1 rounded-full p-2 bg-muted/50">
+                                    <Bot className="h-4 w-4" />
+                                  </div>
+                                )}
+                                <div
+                                  className={`max-w-[80%] rounded-2xl px-4 py-2 text-sm leading-relaxed ${
+                                    m.role === "user"
+                                      ? "bg-primary text-primary-foreground rounded-br-sm"
+                                      : "bg-muted/40 text-foreground rounded-bl-sm"
+                                  }`}
+                                >
+                                  {m.text}
+                                </div>
+                                {m.role === "user" && (
+                                  <div className="mt-1 rounded-full p-2 bg-muted/50">
+                                    <User className="h-4 w-4" />
+                                  </div>
+                                )}
+                              </div>
+                            ))
+                          )}
+                        </CardContent>
+                        <div className="p-4 border-t border-border flex items-end gap-3">
+                          <Textarea
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            placeholder="Tulis pertanyaan tentang CV..."
+                            className="min-h-[64px] resize-none flex-1"
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) sendChat();
+                            }}
+                          />
+                          <Button className="gap-2 btn-gradient" onClick={sendChat} disabled={isParsing}>
+                            {isParsing ? (
+                              <>
+                                <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                Processing...
+                              </>
+                            ) : (
+                              <>
+                                <Send className="h-4 w-4" />
+                                Kirim
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      </Card>
+                    </div>
+                  ),
+                },
+              ]}
+            />
+          </div>
         </div>
-      </div>
-    </main>
+      </main>
     </div>
   );
 }

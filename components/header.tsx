@@ -41,9 +41,15 @@ export function Header() {
   return (
     <header className="border-b border-border bg-card/70 glass soft-shadow sticky top-0 z-[80]">
       <div className="flex h-16 items-center justify-between px-6">
-        <div className="flex items-center gap-2">
-          <Image src="/neurabot2.png" alt="RAG Document AI" width={32} height={32} className="h-8 w-8" priority />
-          <span className="text-xl font-semibold text-gradient">RAG Document AI</span>
+        <div className="flex items-center">
+          <Image
+            src="/RAG logo.png"
+            alt="RAG"
+            width={70}
+            height={70}
+            className="h-25 w-auto"
+            priority
+          />
         </div>
 
         <div className="flex items-center gap-4">

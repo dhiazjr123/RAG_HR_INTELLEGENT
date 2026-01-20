@@ -9,7 +9,7 @@ import { MainContent } from "@/components/main-content";
 export default function HomeShell() {
   return (
     <DocumentsProvider>
-      <div className="min-h-screen page-gradient">
+      <div className="min-h-screen bg-figma-auth">
         <Header />
         <div className="flex">
           <Sidebar />

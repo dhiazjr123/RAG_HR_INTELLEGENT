@@ -3,6 +3,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 
 export default function ForgotPasswordPage() {
@@ -21,24 +23,80 @@ export default function ForgotPasswordPage() {
     setLoading(true);
 
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${location.origin}/reset-password`,
-    });
-      if (error) throw error;
-      setOk("Link reset password sudah dikirim ke email Anda.");
+      // Pastikan email tidak kosong
+      if (!email || !email.trim()) {
+        setErr("Email tidak boleh kosong");
+        setLoading(false);
+        return;
+      }
+
+      // Pastikan format email valid
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        setErr("Format email tidak valid");
+        setLoading(false);
+        return;
+      }
+
+      // Gunakan window.location.origin untuk konsistensi
+      const redirectUrl = typeof window !== 'undefined' 
+        ? `${window.location.origin}/reset-password`
+        : `${location.origin}/reset-password`;
+
+      console.log('🔄 Requesting password reset for:', email);
+      console.log('📍 Redirect URL:', redirectUrl);
+
+      const { data, error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: redirectUrl,
+      });
+
+      if (error) {
+        console.error('❌ Supabase error:', error);
+        // Tampilkan error yang lebih informatif
+        if (error.message.includes('rate limit')) {
+          setErr("Terlalu banyak permintaan. Silakan coba lagi nanti.");
+        } else if (error.message.includes('email')) {
+          setErr("Email tidak ditemukan atau tidak valid.");
+        } else if (error.message.includes('redirect')) {
+          setErr("URL redirect tidak dikonfigurasi. Silakan hubungi administrator.");
+        } else {
+          setErr(error.message || "Gagal mengirim link reset password. Pastikan email terdaftar.");
+        }
+        return;
+      }
+
+      console.log('✅ Password reset email sent successfully');
+      setOk("Link reset password sudah dikirim ke email Anda. Silakan cek inbox atau folder spam.");
     } catch (e: any) {
-      setErr(e.message || "Gagal mengirim link reset password");
+      console.error('❌ Unexpected error:', e);
+      setErr(e.message || "Terjadi kesalahan. Silakan coba lagi atau hubungi administrator.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-gradient-to-b from-background to-muted/40 p-6">
-      <div className="w-full max-w-md bg-background border border-border rounded-lg shadow-md p-8">
-        <h1 className="text-2xl font-semibold text-center">
-          Forgotten your password?
-        </h1>
+    <main className="min-h-screen flex flex-col bg-figma-auth text-white">
+      {/* Header */}
+      <div className="border-b border-border bg-card/70 glass soft-shadow">
+        <div className="flex h-16 items-center px-6">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => router.back()}
+            className="ring-ambient btn-gradient btn-press group transition-all duration-300 hover:-translate-x-0.5 hover:shadow-lg active:scale-95"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2 transition-transform duration-300 group-hover:-translate-x-1" />
+            Back
+          </Button>
+        </div>
+      </div>
+      
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div className="w-full max-w-md bg-background border border-border rounded-lg shadow-md p-8">
+          <h1 className="text-2xl font-semibold text-center text-white">
+            Forgotten your password?
+          </h1>
         <p className="text-sm text-muted-foreground text-center mt-1 mb-6">
           We will send a message to reset your password.
         </p>
@@ -73,11 +131,12 @@ export default function ForgotPasswordPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-md bg-foreground text-background py-2 text-sm font-medium hover:opacity-90 disabled:opacity-60"
+            className="w-full rounded-md btn-figma py-2 text-sm font-medium transition-all duration-300 ease-in-out hover:scale-105 hover:shadow-lg active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
           >
             {loading ? "Sending..." : "Send Reset Link"}
           </button>
         </form>
+        </div>
       </div>
     </main>
   );

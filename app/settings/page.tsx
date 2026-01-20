@@ -56,7 +56,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="min-h-screen page-gradient">
+    <div className="min-h-screen bg-figma-auth">
       {/* Header */}
       <div className="border-b border-border bg-card/70 glass soft-shadow">
         <div className="flex h-16 items-center justify-between px-6">
@@ -65,9 +65,9 @@ export default function SettingsPage() {
               variant="default" 
               size="sm" 
               onClick={() => router.back()}
-              className="ring-ambient btn-gradient"
+              className="ring-ambient btn-gradient transition-all duration-300 ease-in-out hover:scale-105 hover:shadow-lg active:scale-95 hover:-translate-x-1 group"
             >
-              <ArrowLeft className="h-4 w-4 mr-2" />
+              <ArrowLeft className="h-4 w-4 mr-2 transition-transform duration-300 group-hover:-translate-x-1" />
               Back
             </Button>
             <h1 className="text-xl font-semibold text-gradient">Settings</h1>

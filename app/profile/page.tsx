@@ -299,7 +299,7 @@ function ProfileContent() {
       if (updateError) throw updateError;
 
       setOriginalData({ ...profileData });
-      setIsEditing(false);
+    setIsEditing(false);
       
       // Track activity
       if (currentUserId) {
@@ -328,7 +328,7 @@ function ProfileContent() {
   };
 
   return (
-    <div className="min-h-screen page-gradient">
+    <div className="min-h-screen bg-figma-auth">
       {/* Header */}
       <div className="border-b border-border bg-card/70 glass soft-shadow">
         <div className="flex h-16 items-center justify-between px-6">
@@ -411,10 +411,10 @@ function ProfileContent() {
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Profile Card */}
-            <div className="lg:col-span-1">
-              <Card className="p-6 glass soft-shadow">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Profile Card */}
+          <div className="lg:col-span-1">
+            <Card className="p-6 glass soft-shadow">
               <div className="flex flex-col items-center text-center space-y-4">
                 <div className="relative">
                   <Avatar className="h-24 w-24" key={profileData.avatar}>
@@ -461,16 +461,16 @@ function ProfileContent() {
                         }}
                       />
                       <label htmlFor="avatar-upload">
-                        <Button
+                    <Button
                           type="button"
-                          size="sm"
+                      size="sm"
                           className="absolute -bottom-2 -right-2 h-8 w-8 rounded-full btn-gradient cursor-pointer"
                           asChild
-                        >
+                    >
                           <span>
-                            <Camera className="h-4 w-4" />
+                      <Camera className="h-4 w-4" />
                           </span>
-                        </Button>
+                    </Button>
                       </label>
                     </>
                   )}
@@ -498,9 +498,9 @@ function ProfileContent() {
                       placeholder="Jabatan"
                     />
                   ) : (
-                    <Badge variant="secondary" className="text-sm">
+                  <Badge variant="secondary" className="text-sm">
                       {profileData.role || "No role"}
-                    </Badge>
+                  </Badge>
                   )}
                   
                   {isEditing ? (
@@ -620,7 +620,7 @@ function ProfileContent() {
                       return (
                         <div key={activity.id} className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 group hover:bg-muted/50 transition-colors">
                           <div className={`h-2 w-2 rounded-full ${color}`}></div>
-                          <div className="flex-1">
+                  <div className="flex-1">
                             <p className="text-sm font-medium">{formatActivityDescription(activity)}</p>
                             <p className="text-xs text-muted-foreground">{formatTimeAgo(activity.timestamp)}</p>
                           </div>
@@ -631,7 +631,7 @@ function ProfileContent() {
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>
-                        </div>
+                  </div>
                       );
                     })}
                     
@@ -650,7 +650,7 @@ function ProfileContent() {
                           ) : (
                             <ChevronDown className="h-4 w-4 text-muted-foreground" />
                           )}
-                        </div>
+                </div>
                         
                         {/* Aktivitas tambahan (expandable) */}
                         {expandedActivities && activityStats.recentActivities.slice(5).map((activity) => {
@@ -661,10 +661,10 @@ function ProfileContent() {
                           return (
                             <div key={activity.id} className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 group hover:bg-muted/50 transition-colors">
                               <div className={`h-2 w-2 rounded-full ${color}`}></div>
-                              <div className="flex-1">
+                  <div className="flex-1">
                                 <p className="text-sm font-medium">{formatActivityDescription(activity)}</p>
                                 <p className="text-xs text-muted-foreground">{formatTimeAgo(activity.timestamp)}</p>
-                              </div>
+                  </div>
                               <button
                                 onClick={() => handleRemoveActivity(activity.id)}
                                 className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md hover:bg-destructive/20 text-muted-foreground hover:text-destructive"
@@ -672,7 +672,7 @@ function ProfileContent() {
                               >
                                 <Trash2 className="h-4 w-4" />
                               </button>
-                            </div>
+                </div>
                           );
                         })}
                       </>

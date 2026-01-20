@@ -275,6 +275,17 @@
     background-color: color-mix(in oklch, var(--muted) 60%, transparent);
   }
 
+  /* Figma auth theme */
+  .bg-figma-auth {
+    background: linear-gradient(180deg, #110f11 0%, #090728 100%);
+  }
+  .btn-figma {
+    background: linear-gradient(90deg, #f8fbff 0%, #6fb7ff 45%, #2f6bff 75%, #1d45f3 100%);
+    color: #0b1533;
+  }
+  .btn-figma:hover { filter: brightness(1.05); }
+  .btn-figma:active { transform: scale(0.98); }
+
   /* Scrollbar halus */
   * { scrollbar-width: thin; scrollbar-color: var(--muted-foreground) transparent; }
   ::-webkit-scrollbar { width: 8px; height: 8px; }

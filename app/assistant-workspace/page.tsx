@@ -12,7 +12,7 @@ export default function AssistantWorkspacePage() {
   const router = useRouter();
   return (
     <DocumentsProvider>
-      <div className="min-h-screen page-gradient">
+      <div className="min-h-screen bg-figma-auth">
         {/* Bar aksi */}
         <div className="w-full px-4 md:px-6 pt-3">
           <Button 
