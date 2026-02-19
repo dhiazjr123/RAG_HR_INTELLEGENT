@@ -6,11 +6,13 @@ import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { AuthIllustration } from "@/components/auth-illustration";
+import { useLanguage } from "@/components/language-provider";
 
 export default function LoginPage() {
   const supabase = createClient();
   const router = useRouter();
   const params = useSearchParams();
+  const { t } = useLanguage();
   const next = params.get("next") || "/";
 
   const [email, setEmail] = useState("");
@@ -100,7 +102,7 @@ export default function LoginPage() {
       {/* Kanan: form */}
       <div className="flex items-center justify-center p-8">
         <div className="w-full max-w-md">
-          <h1 className="text-3xl font-semibold text-center mb-8 text-white">Log In</h1>
+          <h1 className="text-3xl font-semibold text-center mb-8 text-white">{t("login.title")}</h1>
 
           <form onSubmit={onSubmit} className="space-y-4" autoComplete="off">
             {/* autofill trap */}
@@ -108,7 +110,7 @@ export default function LoginPage() {
             <input type="password" name="password" autoComplete="current-password" className="hidden" aria-hidden="true" tabIndex={-1} />
 
             <div className="space-y-1">
-              <label className="text-sm">Email</label>
+              <label className="text-sm">{t("login.email")}</label>
               <input
                 type="email"
                 required
@@ -122,7 +124,7 @@ export default function LoginPage() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-sm">Password</label>
+              <label className="text-sm">{t("login.password")}</label>
               <div className="relative">
                 <input
                   type={showPw ? "text" : "password"}
@@ -152,16 +154,15 @@ export default function LoginPage() {
                     onChange={(e) => setRemember(e.target.checked)}
                     className="accent-primary"
                   />
-                  Remember me
+                  {t("login.remember")}
                 </label>
 
-                {/* ⬇️ ganti alert → link ke halaman forgot-password */}
                 <button
                   type="button"
                   className="text-xs text-gradient hover:underline"
                   onClick={() => router.push("/forgot-password")}
                 >
-                  Forgot Password?
+                  {t("login.forgotPassword")}
                 </button>
               </div>
             </div>
@@ -185,16 +186,16 @@ export default function LoginPage() {
               {loading ? (
                 <span className="flex items-center justify-center gap-2">
                   <span className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                  Signing in...
+                  {t("login.signingIn")}
                 </span>
               ) : (
-                "Log In"
+                t("login.submit")
               )}
             </button>
 
             <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-xs text-muted-foreground">
               <div className="h-px bg-border" />
-              <span>or</span>
+              <span>{t("login.or")}</span>
               <div className="h-px bg-border" />
             </div>
 
@@ -205,15 +206,15 @@ export default function LoginPage() {
             >
               <span className="inline-flex items-center gap-2">
                 <Image src="/g.png" alt="Google" width={18} height={18} className="transition-transform duration-300 hover:rotate-12" />
-                Continue with Google
+                {t("login.google")}
               </span>
             </button>
           </form>
 
           <p className="text-xs text-muted-foreground mt-6 text-center">
-            No account yet?{" "}
+            {t("login.noAccount")}{" "}
             <a className="text-gradient hover:underline" href={`/register?next=${encodeURIComponent(next)}`}>
-              Sign Up
+              {t("login.createAccount")}
             </a>
           </p>
         </div>

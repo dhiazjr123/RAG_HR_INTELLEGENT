@@ -10,9 +10,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/components/language-provider";
 
 export function Header() {
   const router = useRouter();
+  const { t } = useLanguage();
   const supabase = createClient();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -53,7 +55,7 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-4">
-          <Badge variant="secondary" className="text-xs">Enterprise Department</Badge>
+          <Badge variant="secondary" className="text-xs">{t("header.enterprise")}</Badge>
 
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" className="ring-ambient"><HelpCircle className="h-4 w-4" /></Button>
@@ -72,7 +74,7 @@ export function Header() {
                 "h-4 w-4 mr-2 transition-transform duration-300",
                 isLoggingOut && "animate-spin"
               )} /> 
-              {isLoggingOut ? "Logging out..." : "Logout"}
+              {isLoggingOut ? t("header.loggingOut") : t("header.logout")}
             </Button>
             <div className="relative" ref={menuRef}>
               <button
@@ -96,14 +98,14 @@ export function Header() {
                     onClick={() => { setMenuOpen(false); router.push("/profile"); }}
                   >
                     <User2 className="h-4 w-4 transition-transform duration-300 group-hover:scale-110" /> 
-                    <span>Profile</span>
+                    <span>{t("header.profile")}</span>
                   </button>
                   <button
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm transition-all duration-300 ease-in-out hover:bg-muted/60 hover:translate-x-1 hover:scale-105 active:scale-95 group"
                     onClick={() => { setMenuOpen(false); router.push("/setting"); }}
                   >
                     <Settings className="h-4 w-4 transition-transform duration-300 group-hover:rotate-90" /> 
-                    <span>Setting</span>
+                    <span>{t("header.setting")}</span>
                   </button>
                 </div>
               )}

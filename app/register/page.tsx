@@ -6,11 +6,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import Image from "next/image";
 import { AuthIllustration } from "@/components/auth-illustration";
+import { useLanguage } from "@/components/language-provider";
 
 export default function RegisterPage() {
   const supabase = createClient();
   const router = useRouter();
   const params = useSearchParams();
+  const { t } = useLanguage();
   const next = params.get("next") || "/";
 
   const [username, setUsername] = useState("");
@@ -110,7 +112,7 @@ export default function RegisterPage() {
       {/* kanan: form */}
       <div className="flex items-center justify-center p-8">
         <div className="w-full max-w-md">
-          <h1 className="text-3xl font-semibold text-center mb-8 text-white">Sign Up</h1>
+          <h1 className="text-3xl font-semibold text-center mb-8 text-white">{t("register.title")}</h1>
 
           <form onSubmit={onSubmit} className="space-y-4" autoComplete="off">
             {/* ===== Autofill trap: biar Chrome isi di sini, bukan field kita ===== */}
@@ -134,7 +136,7 @@ export default function RegisterPage() {
             {/* USERNAME */}
             <div className="space-y-1">
               <label className="text-sm" htmlFor="username">
-                Username
+                {t("register.name")}
               </label>
               <input
                 id="username"
@@ -154,7 +156,7 @@ export default function RegisterPage() {
             {/* EMAIL */}
             <div className="space-y-1">
               <label className="text-sm" htmlFor="email">
-                Email
+                {t("register.email")}
               </label>
               <input
                 id="email"
@@ -174,7 +176,7 @@ export default function RegisterPage() {
             {/* PASSWORD */}
             <div className="space-y-1">
               <label className="text-sm" htmlFor="password">
-                Password
+                {t("register.password")}
               </label>
               <div className="relative">
                 <input
@@ -202,7 +204,7 @@ export default function RegisterPage() {
             {/* CONFIRM PASSWORD */}
             <div className="space-y-1">
               <label className="text-sm" htmlFor="confirm">
-                Confirm Password
+                {t("register.confirmPassword")}
               </label>
               <div className="relative">
                 <input
@@ -231,7 +233,7 @@ export default function RegisterPage() {
               </div>
               {mismatch && (
                 <p className="text-xs text-red-500 mt-1">
-                  Konfirmasi password tidak cocok.
+                  {t("register.mismatch")}
                 </p>
               )}
             </div>
@@ -244,7 +246,7 @@ export default function RegisterPage() {
                 onChange={(e) => setAgree(e.target.checked)}
                 className="accent-primary"
               />
-              Saya setuju dengan syarat & kebijakan
+              {t("register.agree")}
             </label>
 
             {/* ALERTS */}
@@ -268,21 +270,20 @@ export default function RegisterPage() {
               {loading ? (
                 <span className="flex items-center justify-center gap-2">
                   <span className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                  Creating...
+                  {t("register.creating")}
                 </span>
               ) : (
-                "Create account"
+                t("register.submit")
               )}
             </button>
 
             {/* OR */}
             <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-xs text-muted-foreground">
               <div className="h-px bg-border" />
-              <span>or</span>
+              <span>{t("register.or")}</span>
               <div className="h-px bg-border" />
             </div>
 
-            {/* GOOGLE */}
             <button
               type="button"
               onClick={registerWithGoogle}
@@ -290,18 +291,17 @@ export default function RegisterPage() {
             >
               <span className="inline-flex items-center gap-2">
                 <Image src="/g.png" alt="Google" width={18} height={18} className="transition-transform duration-300 hover:rotate-12" />
-                Sign up with Google
+                {t("register.google")}
               </span>
             </button>
 
-            {/* LINK TO LOGIN */}
             <p className="text-xs text-muted-foreground mt-6 text-center">
-              Sudah punya akun?{" "}
+              {t("register.hasAccount")}{" "}
               <a
                 className="text-gradient hover:underline"
                 href={`/login?next=${encodeURIComponent(next)}`}
               >
-                Log In
+                {t("register.login")}
               </a>
             </p>
           </form>

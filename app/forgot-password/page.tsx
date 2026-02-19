@@ -6,10 +6,12 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
+import { useLanguage } from "@/components/language-provider";
 
 export default function ForgotPasswordPage() {
   const supabase = createClient();
   const router = useRouter();
+  const { t } = useLanguage();
 
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
@@ -87,7 +89,7 @@ export default function ForgotPasswordPage() {
             className="ring-ambient btn-gradient btn-press group transition-all duration-300 hover:-translate-x-0.5 hover:shadow-lg active:scale-95"
           >
             <ArrowLeft className="h-4 w-4 mr-2 transition-transform duration-300 group-hover:-translate-x-1" />
-            Back
+            {t("forgot.back")}
           </Button>
         </div>
       </div>
@@ -95,16 +97,16 @@ export default function ForgotPasswordPage() {
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="w-full max-w-md bg-background border border-border rounded-lg shadow-md p-8">
           <h1 className="text-2xl font-semibold text-center text-white">
-            Forgotten your password?
+            {t("forgot.title")}
           </h1>
         <p className="text-sm text-muted-foreground text-center mt-1 mb-6">
-          We will send a message to reset your password.
+          {t("forgot.subtitle")}
         </p>
 
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="space-y-1">
             <label className="text-sm" htmlFor="email">
-              Email Address
+              {t("forgot.email")}
             </label>
             <input
               id="email"
@@ -112,7 +114,7 @@ export default function ForgotPasswordPage() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="Enter personal or work email address"
+              placeholder={t("forgot.emailPlaceholder")}
               className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/40"
             />
           </div>
@@ -133,7 +135,7 @@ export default function ForgotPasswordPage() {
             disabled={loading}
             className="w-full rounded-md btn-figma py-2 text-sm font-medium transition-all duration-300 ease-in-out hover:scale-105 hover:shadow-lg active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
           >
-            {loading ? "Sending..." : "Send Reset Link"}
+            {loading ? t("forgot.sending") : t("forgot.submit")}
           </button>
         </form>
         </div>

@@ -7,14 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Bot, BarChart3, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import { useLanguage } from "@/components/language-provider";
 
-export default function Sidebar() {                    // ⬅️ export default
+export default function Sidebar() {
   const pathname = usePathname();
+  const { t } = useLanguage();
   const [clickedItem, setClickedItem] = useState<string | null>(null);
   const menu = [
-    { href: "/assistant-workspace", label: "AI Assistant", icon: Bot },
-    { href: "/", label: "Overview", icon: BarChart3 },
-    { href: "/documents", label: "Kelola Dokumen", icon: FileText },
+    { href: "/assistant-workspace", labelKey: "sidebar.aiAssistant", icon: Bot },
+    { href: "/", labelKey: "sidebar.overview", icon: BarChart3 },
+    { href: "/documents", labelKey: "sidebar.documents", icon: FileText },
   ];
 
   const handleClick = (href: string) => {
@@ -50,7 +52,7 @@ export default function Sidebar() {                    // ⬅️ export default
                     "transition-all duration-300",
                     active && "font-semibold"
                   )}>
-                  {m.label}
+                  {t(m.labelKey)}
                   </span>
                 </Button>
               </Link>
