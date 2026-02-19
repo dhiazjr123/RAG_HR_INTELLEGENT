@@ -120,6 +120,13 @@ export default function SettingPage() {
   const [settings, setSettings] = useState<Settings>(defaultSettings);
   const [userEmail, setUserEmail] = useState<string>("");
   const [saved, setSaved] = useState(false);
+  const [clickedMenuId, setClickedMenuId] = useState<MenuId | null>(null);
+
+  const handleMenuClick = (id: MenuId) => {
+    setActiveMenu(id);
+    setClickedMenuId(id);
+    setTimeout(() => setClickedMenuId(null), 300);
+  };
 
   useEffect(() => {
     setSettings(loadStoredSettings());
@@ -183,25 +190,37 @@ export default function SettingPage() {
       </div>
 
       <main className="p-4 md:p-6 flex flex-col md:flex-row gap-6 max-w-6xl mx-auto">
-        {/* Menu kiri */}
-        <nav className="md:w-56 shrink-0 space-y-1">
+        {/* Menu kiri - gaya sama dengan sidebar dashboard */}
+        <nav className="md:w-56 shrink-0 space-y-2">
           {MENU_IDS.map((id) => {
             const Icon = MENU_ICONS[id];
+            const active = activeMenu === id;
+            const isClicked = clickedMenuId === id;
             return (
-              <button
+              <Button
                 key={id}
                 type="button"
-                onClick={() => setActiveMenu(id)}
+                variant={active ? "default" : "ghost"}
+                onClick={() => handleMenuClick(id)}
                 className={cn(
-                  "w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-300",
-                  activeMenu === id
-                    ? "bg-primary/20 text-primary border border-primary/40"
-                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                  "w-full justify-start gap-2 transition-all duration-300 ease-in-out",
+                  active && "btn-gradient",
+                  !active && "hover:bg-muted/50 hover:translate-x-1",
+                  isClicked && "scale-95"
                 )}
               >
-                <Icon className="h-4 w-4" />
-                {t(`settings.menu.${id}`)}
-              </button>
+                <Icon className={cn(
+                  "h-4 w-4 transition-transform duration-300",
+                  active && "scale-110",
+                  isClicked && "rotate-12"
+                )} />
+                <span className={cn(
+                  "transition-all duration-300",
+                  active && "font-semibold"
+                )}>
+                  {t(`settings.menu.${id}`)}
+                </span>
+              </Button>
             );
           })}
         </nav>
