@@ -12,6 +12,7 @@ import { useDocuments } from "@/components/documents-context";
 import FileUploadButton from "@/components/file-upload-button";
 import { cn } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
+import { useLanguage } from "@/components/language-provider";
 
 export function DocumentsManager() {
   const {
@@ -19,6 +20,7 @@ export function DocumentsManager() {
     removeDocument,
     addFromFiles,
   } = useDocuments();
+  const { t } = useLanguage();
 
   // State untuk search dan filter
   const [searchQuery, setSearchQuery] = useState("");
@@ -125,7 +127,7 @@ export function DocumentsManager() {
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
-            Kelola Dokumen
+            {t("documents.manage")}
             {filteredDocuments.length !== documents.length && (
               <Badge variant="secondary" className="ml-2">
                 {filteredDocuments.length} dari {documents.length}
