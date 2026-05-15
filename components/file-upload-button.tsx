@@ -18,7 +18,7 @@ type Props = {
 export default function FileUploadButton({
   onSelectFiles,
   label = "Upload Document",
-  accept = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt",
+  accept = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.jpg,.jpeg,.png,.gif,.webp",
   multiple = true,
   variant = "outline",
   size = "default",

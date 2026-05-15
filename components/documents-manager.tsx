@@ -12,6 +12,7 @@ import { useDocuments } from "@/components/documents-context";
 import FileUploadButton from "@/components/file-upload-button";
 import { cn } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
+import { useLanguage } from "@/components/language-provider";
 
 export function DocumentsManager() {
   const {
@@ -19,6 +20,7 @@ export function DocumentsManager() {
     removeDocument,
     addFromFiles,
   } = useDocuments();
+  const { t } = useLanguage();
 
   // State untuk search dan filter
   const [searchQuery, setSearchQuery] = useState("");
@@ -80,7 +82,7 @@ export function DocumentsManager() {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 type="text"
-                placeholder="Cari dokumen berdasarkan nama kandidat atau posisi pekerjaan..."
+                placeholder={t("documents.search")}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
@@ -95,9 +97,9 @@ export function DocumentsManager() {
                 onChange={(e) => setFilterType(e.target.value as "all" | "CV" | "JD")}
                 className="h-10 px-3 rounded-md border border-input bg-background text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
-                <option value="all">Semua Tipe</option>
-                <option value="CV">CV Saja</option>
-                <option value="JD">Job Description Saja</option>
+                <option value="all">{t("documents.filterAll")}</option>
+                <option value="CV">{t("documents.filterCV")}</option>
+                <option value="JD">{t("documents.filterJD")}</option>
               </select>
             </div>
 
@@ -125,7 +127,7 @@ export function DocumentsManager() {
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
-            Kelola Dokumen
+            {t("documents.manage")}
             {filteredDocuments.length !== documents.length && (
               <Badge variant="secondary" className="ml-2">
                 {filteredDocuments.length} dari {documents.length}

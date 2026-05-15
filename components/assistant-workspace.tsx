@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useDocuments } from "@/components/documents-context";
 import FileUploadButton from "@/components/file-upload-button";
-import { cn } from "@/lib/utils";
+import { ChatMarkdown } from "@/components/chat-markdown";
 import { TabsContainer } from "@/components/ui/tabs";
 import { createClient } from "@/lib/supabase/client";
 // Client-side PDF parsing (avoid server worker issues)
@@ -72,6 +72,110 @@ function splitToBlocksClient(text: string, blockSize = 1200): ParsedBlock[] {
     idx++;
   }
   return out;
+}
+
+/** Batas kirim ke /api/rag/query — selaraskan dengan pemotongan server agar TPM Groq jarang kena */
+const RAG_QUERY_BODY_MAX_CHARS = 12000;
+const RAG_QUERY_JD_MAX_CHARS = 5600;
+const RAG_QUERY_MIN_CHARS_PER_CV = 480;
+
+/**
+ * Susun konteks chat: daftar semua file CV di awal + bagi jatah karakter per CV
+ * supaya tidak hanya 2–3 dokumen pertama yang terbaca sebelum pemotongan.
+ */
+function buildBalancedRagContext(blocks: ParsedBlock[]): string {
+  type Group = { kind: "CV" | "JOB DESCRIPTION"; file: string; chunks: string[] };
+  const order: string[] = [];
+  const byKey = new Map<string, Group>();
+
+  for (const b of blocks) {
+    const m = b.label.match(/^\[(CV|JOB DESCRIPTION) - ([^\]]+)\]/);
+    if (!m) continue;
+    const kind = m[1] as "CV" | "JOB DESCRIPTION";
+    const file = m[2];
+    const key = `${kind}\0${file}`;
+    if (!byKey.has(key)) {
+      order.push(key);
+      byKey.set(key, { kind, file, chunks: [] });
+    }
+    byKey.get(key)!.chunks.push(`[${b.label}] ${b.content}`);
+  }
+
+  if (order.length === 0) {
+    return blocks.map((b) => `[${b.label}] ${b.content}`).join("\n\n");
+  }
+
+  const jdKeys = order.filter((k) => byKey.get(k)!.kind === "JOB DESCRIPTION");
+  const cvKeys = order.filter((k) => byKey.get(k)!.kind === "CV");
+
+  let jdJoined = jdKeys
+    .map((k) => byKey.get(k)!.chunks.join("\n\n"))
+    .join("\n\n---\n\n");
+  if (jdJoined.length > RAG_QUERY_JD_MAX_CHARS) {
+    jdJoined =
+      jdJoined.slice(0, RAG_QUERY_JD_MAX_CHARS) +
+      "\n\n[... teks JD dipersingkat agar ruang untuk semua CV ...]";
+  }
+
+  const rosterJd =
+    jdKeys.length > 0
+      ? jdKeys.map((k, i) => `${i + 1}. ${byKey.get(k)!.file}`).join("\n")
+      : "(tidak ada file JD dalam dokumen ini)";
+
+  const rosterCv =
+    cvKeys.length > 0
+      ? cvKeys.map((k, i) => `${i + 1}. ${byKey.get(k)!.file}`).join("\n")
+      : "(tidak ada file CV)";
+
+  const roster =
+    `=== DAFTAR SUMBER (semua nama file di bawah harus dipertimbangkan jika pertanyaan HR mengarah ke semua kandidat) ===\n` +
+    `Job description / lowongan:\n${rosterJd}\n\n` +
+    `CV kandidat (${cvKeys.length} file):\n${rosterCv}\n\n` +
+    `Instruksi: (a) Jika HR meminta **bandingkan semua / screening semua / sebutkan satu-satu / semua kandidat**, beri satu blok ### per file pada daftar di atas. (b) Jika HR hanya bertanya **siapa paling cocok / terbaik / top / prioritas**, jangan wajibkan ### panjang untuk semua: fokus pada 1–3 kandidat dengan bukti kuat di CV terhadap JD, lalu ringkas kandidat lain dalam satu bagian pendek.\n` +
+    `[Selesai daftar]\n\n`;
+
+  const jdSectionLen = jdJoined ? jdJoined.length + 32 : 0;
+  const nCv = cvKeys.length;
+  const cvJoinOverhead = nCv > 0 ? 120 + nCv * 48 : 0;
+  let remaining = RAG_QUERY_BODY_MAX_CHARS - roster.length - jdSectionLen - cvJoinOverhead;
+  if (remaining < 200) remaining = 200;
+
+  let perCv = nCv > 0 ? Math.floor(remaining / nCv) : remaining;
+  if (nCv > 0 && perCv < RAG_QUERY_MIN_CHARS_PER_CV) {
+    perCv = Math.max(320, Math.floor(remaining / nCv));
+  }
+
+  const cvSections: string[] = [];
+  for (const k of cvKeys) {
+    const g = byKey.get(k)!;
+    let chunk = g.chunks.join("\n\n");
+    if (chunk.length > perCv) {
+      chunk =
+        chunk.slice(0, perCv) +
+        `\n\n[... isi CV "${g.file}" dipersingkat agar setiap kandidat mendapat jatah dalam batas panjang konteks ...]`;
+    }
+    const safeName = g.file.replace(/\]/g, ")").replace(/\[/g, "(");
+    cvSections.push(
+      `[[[CV_ONLY filename:${safeName}]]]\n` +
+        `INSTRUKSI UNTUK MODEL: Seluruh teks antara penanda ini HANYA milik file CV "${safeName}". ` +
+        `Kutipan "Bukti eksplisit" untuk kandidat "${safeName}" WAJIB disalin dari sini saja. ` +
+        `Jika Flutter/mobile/stack teknologi hanya ada di [[[CV_ONLY filename:...]]] lain, DILARANG menulisnya di bagian kandidat ini.\n\n` +
+        chunk +
+        `\n\n[[[/CV_ONLY filename:${safeName}]]]`
+    );
+  }
+
+  const parts: string[] = [roster];
+  if (jdJoined) {
+    parts.push(`=== TEKS JD / LOWONGAN ===\n${jdJoined}`);
+  }
+  if (cvSections.length) {
+    parts.push(
+      `=== TEKS CV PER KANDIDAT (satu file = satu kelompok) ===\n\n` +
+        cvSections.join("\n\n---------- CV_LAINNYA ----------\n\n")
+    );
+  }
+  return parts.join("\n\n");
 }
 
 async function mockExtract(file: File): Promise<Record<string, string>> {
@@ -365,6 +469,12 @@ export default function AssistantWorkspace() {
         setIsParsing(false);
       }
 
+      // Deteksi JD (Job Description) vs CV dari nama file
+      const isLikelyJd = (fileName: string) => {
+        const lower = fileName.toLowerCase();
+        return /jd\b|job\s*description|lowongan|requirement|kriteria\s*posisi|deskripsi\s*pekerjaan/.test(lower) || lower.includes("job_desc") || lower.startsWith("jd_");
+      };
+
       // Kumpulkan blocks dari SEMUA dokumen yang sudah diparsed
       const allBlocks: ParsedBlock[] = [];
       const docNames: Record<string, string> = {};
@@ -374,11 +484,11 @@ export default function AssistantWorkspace() {
         if (doc.status === "Processed" && parsedById[doc.id] && parsedById[doc.id].length > 0) {
           const blocks = parsedById[doc.id];
           docNames[doc.id] = doc.name;
-          // Tambahkan nama dokumen sebagai prefix untuk setiap block
+          const docType = isLikelyJd(doc.name) ? "JOB DESCRIPTION" : "CV";
           blocks.forEach((block) => {
             allBlocks.push({
               ...block,
-              label: `[${doc.name}] ${block.label}`,
+              label: `[${docType} - ${doc.name}] ${block.label}`,
             });
           });
         }
@@ -394,10 +504,11 @@ export default function AssistantWorkspace() {
           for (const doc of processedDocs) {
             try {
               const blocks = await autoIngest(doc.file!, doc.id, setParsedById, setOpenBlocks);
+              const docType = isLikelyJd(doc.name) ? "JOB DESCRIPTION" : "CV";
               blocks.forEach((block) => {
                 allBlocks.push({
                   ...block,
-                  label: `[${doc.name}] ${block.label}`,
+                  label: `[${docType} - ${doc.name}] ${block.label}`,
                 });
               });
               console.log(`✅ Parsed ${doc.name}: ${blocks.length} blocks`);
@@ -422,26 +533,21 @@ export default function AssistantWorkspace() {
       let context = "";
       
       if (allBlocks.length > 0) {
-        context = allBlocks
-          .map((b) => `[${b.label}] ${b.content}`)
-          .join("\n\n");
-        
-        // Tambahkan informasi jumlah dokumen di context
+        const body = buildBalancedRagContext(allBlocks);
         const docCount = new Set(
           allBlocks.map((b) => {
-            const match = b.label.match(/\[([^\]]+)\]/);
-            return match ? match[1] : "";
+            const m = b.label.match(/^\[(CV|JOB DESCRIPTION) - ([^\]]+)\]/);
+            return m ? `${m[1]}:${m[2]}` : b.label;
           })
         ).size;
 
-        context = `=== INFORMASI: Terdapat ${docCount} dokumen CV yang tersedia ===\n\n${context}`;
+        context = `=== INFORMASI: Terdapat ${docCount} dokumen (dapat berisi Job Description/lowongan dan/atau CV kandidat). Gunakan untuk menjawab pertanyaan HR. ===\n\n${body}`;
       } else {
-        // Jika tidak ada blocks, cek apakah ada dokumen yang sudah diupload
         const uploadedDocs = documents.filter((d) => d.status === "Processed");
         if (uploadedDocs.length > 0) {
           context = `=== PERINGATAN: Terdapat ${uploadedDocs.length} dokumen yang sudah diupload (${uploadedDocs.map(d => d.name).join(", ")}) tetapi belum berhasil diparsing. Silakan coba upload ulang atau refresh halaman. ===`;
         } else {
-          context = "(no context - belum ada dokumen yang diproses. Silakan upload dokumen CV terlebih dahulu.)";
+          context = "(no context - belum ada dokumen. Silakan upload Job Description (JD) dan/atau CV kandidat di Kelola Dokumen.)";
         }
       }
 
@@ -828,13 +934,17 @@ export default function AssistantWorkspace() {
                                   </div>
                                 )}
                                 <div
-                                  className={`max-w-[80%] rounded-2xl px-4 py-2 text-sm leading-relaxed ${
+                                  className={`max-w-[80%] min-w-0 rounded-2xl px-4 py-2 text-sm leading-relaxed ${
                                     m.role === "user"
                                       ? "bg-primary text-primary-foreground rounded-br-sm"
                                       : "bg-muted/40 text-foreground rounded-bl-sm"
                                   }`}
                                 >
-                                  {m.text}
+                                  {m.role === "assistant" ? (
+                                    <ChatMarkdown content={m.text} />
+                                  ) : (
+                                    <div className="whitespace-pre-wrap break-words">{m.text}</div>
+                                  )}
                                 </div>
                                 {m.role === "user" && (
                                   <div className="mt-1 rounded-full p-2 bg-muted/50">

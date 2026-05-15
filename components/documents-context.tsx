@@ -79,6 +79,11 @@ function mimeFromExt(extUpper: string) {
     case "xlsx": return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
     case "ppt": return "application/vnd.ms-powerpoint";
     case "pptx": return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+    case "jpg":
+    case "jpeg": return "image/jpeg";
+    case "png": return "image/png";
+    case "gif": return "image/gif";
+    case "webp": return "image/webp";
     default: return "application/octet-stream";
   }
 }
@@ -356,10 +361,13 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
         const formData = new FormData();
         formData.append("file", row.file);
 
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 120000);
         const response = await fetch("/api/rag/ingest", {
           method: "POST",
           body: formData,
-        });
+          signal: controller.signal,
+        }).finally(() => clearTimeout(timeoutId));
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
@@ -369,10 +377,8 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
         const data = await response.json();
         const parsedBlocks = data.parsedBlocks || [];
         
-        // Gabungkan semua parsed blocks menjadi satu teks untuk preview
         const parsedText = parsedBlocks
           .map((block: { content?: string; label?: string }) => {
-            // Gunakan content jika ada, jika tidak gunakan label sebagai fallback
             if (block.content) return block.content;
             if (block.label) return block.label;
             return "";
@@ -380,7 +386,6 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
           .filter((text: string) => text.trim().length > 0)
           .join("\n\n");
 
-        // Build index untuk dokumen ini
         if (parsedBlocks.length > 0 && currentUserId) {
           try {
             const { buildIndexForDocument } = await import("@/lib/ragLocal");
@@ -388,13 +393,11 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
             console.log(`✅ Indexed ${parsedBlocks.length} blocks for: ${row.name}`);
           } catch (indexError: any) {
             console.error(`⚠️ Failed to index ${row.name}:`, indexError);
-            // Tetap lanjutkan meskipun indexing gagal
           }
         } else {
           console.warn(`⚠️ No parsed blocks for ${row.name} (${parsedBlocks.length} blocks)`);
         }
 
-        // Update status menjadi "Processed" setelah berhasil
         setDocuments((prev) => {
           const updated = prev.map((d) => {
             if (d.id === row.id) {
@@ -410,7 +413,6 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
             return d;
           });
 
-          // Track activity setelah berhasil diproses
           if (currentUserId) {
             const activities = loadActivities(currentUserId);
             const doc = updated.find((d) => d.id === row.id);
@@ -439,8 +441,10 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
 
         console.log(`✅ Successfully processed: ${row.name} (${parsedBlocks.length} blocks)`);
       } catch (error: any) {
+        if (error?.name === "AbortError") {
+          console.error(`⏱️ Timeout memproses ${row.name}. OCR gambar/PDF bisa 1–2 menit.`);
+        }
         console.error(`❌ Failed to process ${row.name}:`, error);
-        // Update status tetap "Processing" atau bisa ditambahkan status "Failed"
         setDocuments((prev) =>
           prev.map((d) =>
             d.id === row.id ? { ...d, status: "Processing" as const } : d

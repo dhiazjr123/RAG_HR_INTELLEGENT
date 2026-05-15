@@ -10,14 +10,14 @@ export const dynamic = "force-dynamic";
 
 async function parseWithPdfplumber(buffer: Buffer): Promise<string> {
   return new Promise((resolve, reject) => {
-    // Create temporary file
-    const tempFile = path.join(os.tmpdir(), `pdf-${Date.now()}.pdf`);
+    const tempFile = path.join(os.tmpdir(), `pdf-${Date.now()}-${Math.random().toString(36).slice(2)}.pdf`);
+    const outTxt = `${tempFile}.extracted.txt`;
     fs.writeFileSync(tempFile, buffer);
 
-    // Normalize path untuk Windows (ganti backslash dengan forward slash)
-    const normalizedPath = tempFile.replace(/\\/g, '/');
+    const normalizedPath = tempFile.replace(/\\/g, "/");
+    const normalizedOut = outTxt.replace(/\\/g, "/");
 
-    // Run pdfplumber via Python
+    // Tulis UTF-8 ke file — hindari error Windows cp1252 saat PDF berisi emoji (mis. 📧)
     const pythonScript = `
 import pdfplumber
 import sys
@@ -28,35 +28,61 @@ try:
     for page in pdf.pages:
         text += page.extract_text() or ""
         text += "\\n"
-    print(text)
+    with open(r'${normalizedOut}', "w", encoding="utf-8", errors="replace") as f:
+        f.write(text)
 except Exception as e:
-    print(f"ERROR: {e}", file=sys.stderr)
+    print(str(e), file=sys.stderr)
     sys.exit(1)
 `;
 
-    const pythonProcess = spawn("python", ["-c", pythonScript]);
+    const pythonProcess = spawn("python", ["-c", pythonScript], {
+      env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
+    });
 
-    let output = "";
     let error = "";
 
-    pythonProcess.stdout.on("data", (data) => {
-      output += data.toString();
+    pythonProcess.stderr.on("data", (data) => {
+      error += data.toString("utf8");
     });
 
-    pythonProcess.stderr.on("data", (data) => {
-      error += data.toString();
-    });
+    const timeout = setTimeout(() => {
+      pythonProcess.kill();
+      try {
+        if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+      } catch {
+        /* ignore */
+      }
+      try {
+        if (fs.existsSync(outTxt)) fs.unlinkSync(outTxt);
+      } catch {
+        /* ignore */
+      }
+      reject(new Error("Pdfplumber parsing timeout"));
+    }, 30000);
 
     pythonProcess.on("close", (code) => {
-      // Cleanup
+      clearTimeout(timeout);
+      let text = "";
+      try {
+        if (fs.existsSync(outTxt)) {
+          text = fs.readFileSync(outTxt, "utf8");
+          fs.unlinkSync(outTxt);
+        }
+      } catch {
+        /* ignore */
+      }
       if (fs.existsSync(tempFile)) {
-        fs.unlinkSync(tempFile);
+        try {
+          fs.unlinkSync(tempFile);
+        } catch {
+          /* ignore */
+        }
       }
 
       if (code !== 0) {
         reject(new Error(error || "Pdfplumber parsing failed"));
       } else {
-        resolve(output);
+        resolve(text.trim());
       }
     });
   });
