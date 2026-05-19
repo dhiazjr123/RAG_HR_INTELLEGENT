@@ -131,7 +131,7 @@ function buildBalancedRagContext(blocks: ParsedBlock[]): string {
     `=== DAFTAR SUMBER (semua nama file di bawah harus dipertimbangkan jika pertanyaan HR mengarah ke semua kandidat) ===\n` +
     `Job description / lowongan:\n${rosterJd}\n\n` +
     `CV kandidat (${cvKeys.length} file):\n${rosterCv}\n\n` +
-    `Instruksi: (a) Jika HR meminta **bandingkan semua / screening semua / sebutkan satu-satu / semua kandidat**, beri satu blok ### per file pada daftar di atas. (b) Jika HR hanya bertanya **siapa paling cocok / terbaik / top / prioritas**, jangan wajibkan ### panjang untuk semua: fokus pada 1–3 kandidat dengan bukti kuat di CV terhadap JD, lalu ringkas kandidat lain dalam satu bagian pendek.\n` +
+    `Instruksi: (a) Jika HR meminta **bandingkan semua / screening semua / sebutkan satu-satu / semua kandidat**, beri satu blok ### per file pada daftar di atas. (b) Jika HR hanya bertanya **siapa paling cocok / terbaik / top / prioritas**, jangan wajibkan ### panjang untuk semua: fokus pada 1–3 kandidat dengan bukti kuat di CV terhadap JD, lalu ringkas kandidat lain dalam satu bagian pendek. **Judul setiap blok kandidat harus memuat nama orang dari teks CV** + (CV: nama file), bukan hanya nama file.\n` +
     `[Selesai daftar]\n\n`;
 
   const jdSectionLen = jdJoined ? jdJoined.length + 32 : 0;
@@ -158,6 +158,9 @@ function buildBalancedRagContext(blocks: ParsedBlock[]): string {
     cvSections.push(
       `[[[CV_ONLY filename:${safeName}]]]\n` +
         `INSTRUKSI UNTUK MODEL: Seluruh teks antara penanda ini HANYA milik file CV "${safeName}". ` +
+        `Cari nama pelamar di teks CV di bawah (biasanya baris awal / header). Di jawaban, judul untuk kandidat ini harus heading Markdown: nama asli dari teks + (CV: ${safeName}). ` +
+        `**Dilarang** menulis frasa literal \"Nama Lengkap\" atau \"Nama Kandidat\" sebagai pengganti nama. ` +
+        `**Dilarang** judul yang hanya nama file tanpa nama orang jika nama terbaca di teks ini. ` +
         `Kutipan "Bukti eksplisit" untuk kandidat "${safeName}" WAJIB disalin dari sini saja. ` +
         `Jika Flutter/mobile/stack teknologi hanya ada di [[[CV_ONLY filename:...]]] lain, DILARANG menulisnya di bagian kandidat ini.\n\n` +
         chunk +

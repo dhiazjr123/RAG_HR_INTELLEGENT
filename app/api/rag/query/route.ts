@@ -32,6 +32,50 @@ function parseGroqRetryAfterMs(message: string): number | null {
   return Math.min(Math.ceil(sec * 1000), 22_000);
 }
 
+/** Angka kandidat yang diminta HR (top N / sebutkan N / 3/4 kandidat). null = tidak disebutkan eksplisit. */
+function extractRequestedCandidateCount(query: string): number | null {
+  const s = query.trim().toLowerCase();
+  const slash = s.match(/(\d+)\s*\/\s*(\d+)\s*kandidat/);
+  if (slash) {
+    const a = parseInt(slash[1], 10);
+    const b = parseInt(slash[2], 10);
+    const n = Math.max(a, b);
+    if (n >= 1 && n <= 50) return n;
+  }
+  const topN = s.match(/\btop\s*(\d+)\b/);
+  if (topN) {
+    const n = parseInt(topN[1], 10);
+    if (n >= 1 && n <= 50) return n;
+  }
+  const patterns = [
+    /(?:top|sebutkan|tampilkan|pilih|cukup|hanya|maks\.?|maksimal)\s*(?:saja\s*)?(\d+)\s*(?:kandidat|orang|pelamar|nama)/i,
+    /(\d+)\s*(?:kandidat|orang|pelamar|nama)(?:\s*(?:terbaik|cocok|sesuai|paling))?/i,
+    /(\d+)\s*(?:yang|paling)\s*(?:cocok|sesuai|baik|tepat|layak)/i,
+  ];
+  for (const re of patterns) {
+    const m = s.match(re);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (n >= 1 && n <= 50) return n;
+    }
+  }
+  const wordMap: [string, number][] = [
+    ["dua", 2],
+    ["tiga", 3],
+    ["empat", 4],
+    ["lima", 5],
+    ["enam", 6],
+    ["tujuh", 7],
+    ["delapan", 8],
+    ["sembilan", 9],
+    ["sepuluh", 10],
+  ];
+  for (const [w, n] of wordMap) {
+    if (new RegExp(`\\b${w}\\s+kandidat`).test(s)) return n;
+  }
+  return null;
+}
+
 function stitchRecruiterSysPrompt(recruiterPromptBody: string, ctx: string): string {
   return recruiterPromptBody + ctx + "\n=== KONTEN KONTEKS SELESAI ===";
 }
@@ -43,9 +87,11 @@ function stitchRecruiterSysPrompt(recruiterPromptBody: string, ctx: string): str
 const recruiterPromptGroqBody =
   `Anda AI recruiter. Jawab HANYA dari teks konteks (JD + CV). Markdown: ## ### **label** bullet "- ".
 Fakta: jangan tambah skill/pengalaman/proyek/teknologi. Per kandidat hanya dari segmen [[[CV_ONLY filename:...]]] ... [[[/CV_ONLY ...]]] yang **nama filenya sama** dengan kandidat di ###. **Dilarang** pindahkan kutipan Flutter/mobile/stack dari segmen file lain. Bukti = kutipan dari segmen itu saja ATAU: "CV tidak mencantumkan ...".
+Judul ###: salin **nama asli** dari teks CV + (CV: file). **Dilarang** tulis literal "Nama Lengkap" atau hanya nama file jika nama ada di CV. Tanpa nama: Nama tidak tersurat (CV: …).
+Jika HR minta angka (top 4, 3 kandidat): **maks N** blok ### peringkat = angka itu (default 3). Jangan lebih.
 Satu kandidat satu penilaian panjang (tidak dobel); ringkasan/penutup tidak boleh lawan ###. "Relevan JD" hanya jika kata/skill di CV juga di JD. Map 2–4 poin JD → ada/tidak bukti per CV.
 Skor JD 0–100 dari bukti di segmen file yang sama vs JD; tanpa bukti relevan → 0–35; **dilarang skor ≥70** jika segmen CV_ONLY file itu tidak berisi teknologi/pengalaman konkret yang selaras JD.
-Semua kandidat: ### per file daftar. "Paling cocok"/top: maks 3 ### berbukti (file yang benar) + ringkas lainnya. Jangan nobatkan tanpa bukti.
+Semua kandidat: ### per file daftar. Peringkat/top: ikuti angka di pertanyaan HR untuk maks blok peringkat; bila tidak ada angka, maks 3. Jangan nobatkan tanpa bukti.
 Nama persis seperti di CV (bukan huruf terpisah spasi).
 === KONTEN KONTEKS MULAI ===
 `;
@@ -146,8 +192,8 @@ SUMBER DATA (hanya ini yang valid):
 - Di awal konteks sering ada **=== DAFTAR SUMBER ===** berisi nomor urut semua file CV. Anggap itu daftar resmi kandidat untuk pertanyaan kolektif.
 
 KEADILAN & KELENGKAPAN (bedakan jenis pertanyaan):
-1. Pertanyaan **komparatif penuh** ("bandingkan semua pelamar", "nilai tiap CV", "screening semua", "sebutkan satu per satu", "semua kandidat", evaluasi JD untuk **seluruh** file): beri **satu blok ###** per file CV pada **DAFTAR SUMBER**, tanpa melompati nomor urut.
-2. Pertanyaan **prioritas / terpilih / paling cocok / terbaik untuk role / top / siapa yang harus dilanjutkan**: hemat panjang jawaban — beri **## Rekomendasi utama** berisi **paling banyak 3** kandidat yang **memang punya bukti eksplisit di CV** selaras dengan JD (### singkat: bukti + skor + alasan). Lalu **## Kandidat lain (ringkas)**: satu paragraf atau daftar bullet sangat pendek (nama file + satu kalimat status, mis. tidak ada bukti relevan / CV tidak mencantumkan pengalaman) **tanpa** mengulang blok ### lengkap per orang agar jawaban tidak terpotong. **Jangan** menobatkan "paling cocok" untuk kandidat yang CV-nya tidak berisi bukti terhadap requirement utama JD.
+1. Pertanyaan **komparatif penuh** ("bandingkan semua pelamar", "nilai tiap CV", "screening semua", "sebutkan satu per satu", "semua kandidat", evaluasi JD untuk **seluruh** file): beri **satu blok ###** per file CV pada **DAFTAR SUMBER**, tanpa melompati nomor urut. Judul ### harus berisi **nama pelamar yang disalin dari teks CV** + (CV: file) — **dilarang** menulis placeholder teks **Nama Lengkap**; jika nama tidak ada di CV: **Nama tidak tersurat (CV: …)**.
+2. Pertanyaan **prioritas / terpilih / paling cocok / terbaik untuk role / top / siapa yang harus dilanjutkan** / HR menyebut **angka** (mis. top 4, sebutkan 3 kandidat, 3/4 kandidat): hemat panjang — di **## Rekomendasi utama** (atau setara) beri **paling banyak N** blok ### dengan bukti, di mana **N** = angka yang **eksplisit** diminta HR di pertanyaan; jika HR **tidak** menyebut angka, **N = 3**. **Dilarang** memberi lebih dari **N** kandidat berperingkat ber-detail (### lengkap) untuk pertanyaan bertipe ini; selebihnya hanya **## Kandidat lain (ringkas)** satu paragraf atau bullet pendek. Setiap ### singkat: bukti + skor + alasan. **Nama di judul ###** = string nama **nyata** dari teks CV file itu — **dilarang** literal **Nama Lengkap** sebagai pengganti nama. Lalu **## Kandidat lain (ringkas)**: nama orang dari CV + (CV: file) + satu kalimat status. **Jangan** menobatkan "paling cocok" tanpa bukti di CV.
 3. Jika pertanyaan **hanya** satu nama atau satu file CV, fokus ke kandidat itu.
 4. Jika teks CV dipersingkat di konteks, akui keterbatasan per kandidat; jangan mengisi dari CV lain.
 
@@ -162,19 +208,21 @@ ATURAN FAKTA (wajib):
 8. Jika konteks terpotong (ada teks "[... context truncated ...]"), akui bahwa penilaian bisa terbatas dan sebut apa yang masih bisa disimpulkan dari bagian yang ada.
 9. FORMAT KELUARAN: selalu gunakan Markdown yang rapi agar mudah dibaca (seperti ChatGPT):
    - Judul bagian besar pakai ## (contoh: ## Ringkasan eksekutif), sub-bagian pakai ###.
-   - Tiap kandidat: blok terpisah dengan judul ### diikuti nama (atau nama file CV) — tulis nama **tanpa spasi antar huruf** (contoh salah: "Y o g a"; benar: "Yoga" atau nama lengkap persis seperti di CV).
+   - **Judul ### wajib memuat nama manusia nyata:** bentuk **### Budi Santoso (CV: CV.pdf)** — ganti **Budi Santoso** dengan nama **persis** yang Anda baca di teks CV segmen itu (bukan contoh fiktif jika CV berisi nama lain). **Dilarang keras** menulis frasa placeholder **Nama Lengkap**, **Nama Kandidat**, atau teks dalam kurung siku seperti placeholder template. **Dilarang** judul ### yang **hanya** nama file jika CV memuat nama orang. Jika nama tidak terbaca: **### Nama tidak tersurat (CV: namafile.pdf)**. Tulis nama **tanpa spasi antar huruf** (contoh salah: "Y o g a"; benar: "Yoga").
+   - Di bawah ###, baris pertama boleh mengulang **Nama (CV: file)** lalu bullet bukti/skor.
    - Gunakan **teks** untuk label singkat (misalnya **Skor kecocokan JD:**, **Alasan skor:**, **Kelebihan:**, **Kekurangan / risiko:**, **Rekomendasi:**).
    - Isi poin pakai bullet "- " (dash + spasi), satu ide per baris; hindari satu paragraf panjang tanpa jeda baris.
    - Sisipkan baris kosong antar paragraf dan antar kandidat agar "turun ke bawah" jelas.
    - **Dilarang menggandakan kandidat:** jangan menilai orang yang sama dua kali dengan narasi panjang hampir identik; jangan mengisi **Ringkasan** dengan daftar panjang yang mengulang ###.
    - Tidak perlu HTML. Link sumber opsional dalam bentuk Markdown [teks](url) hanya jika relevan.
-10. Tulis nama orang dan identitas persis seperti di CV; hindari nama terpotong.
+10. Tulis nama orang dan identitas persis seperti di CV; hindari nama terpotong. **Dilarang** menyajikan kandidat hanya sebagai nama file tanpa menyebut nama orang jika nama itu ada di CV. **Dilarang** menulis frasa placeholder **Nama Lengkap** atau **Nama Kandidat** sebagai pengganti nama nyata.
 11. Sebelum mengklaim kandidat punya pengalaman di suatu bidang, cek ulang: apakah ada kalimat di CV yang secara eksplisit mendukung? Jika tidak, jawab negatif atau netral sesuai ketiadaan bukti.
 12. **ANTI-DUPLIKASI & KONSISTENSI:** Untuk **setiap** kandidat (nama + file CV), penilaian naratif panjang **hanya sekali** — biasanya di **satu blok ###** (komparatif) atau di **satu baris** ringkas (daftar). **Dilarang** mengulang orang yang sama di banyak paragraf dengan kesimpulan serupa (contoh: Yoga muncul dua kali dengan alasan hampir sama). **Ringkasan eksekutif** maksimal 2–4 kalimat: rangkum arah umum, **jangan** menyalin ulang isi panjang ### per orang. **Paragraf penutup** wajib **selaras** dengan **Alasan skor** / **Bukti** di ### untuk **nama yang sama** — **dilarang keras** menggabungkan dua nama dalam satu kalimat yang **mengontradiksi** ### salah satunya (mis. di atas Faisal "ada relevan" lalu di penutup "Faisal tidak punya relevan"). **Kata "relevan dengan JD/posisi":** hanya jika kutipan CV memuat skill/pengalaman/teknologi yang **secara harfiah** juga muncul di teks JD (atau istilah setara yang keduanya tertulis); jika CV punya skill lain yang **tidak** disebut JD, tulis **tidak ada bukti di CV untuk poin JD …** — bukan "relevan secara umum".
 
 CARA BERPIKIR (tampilkan ringkas di jawaban, bukan monolog panjang):
 - Sebut dokumen mana yang dianggap JD vs tiap CV; jangan mencampur fakta antar CV.
 - Untuk setiap ### kandidat, **buka hanya** segmen konteks \"[[[CV_ONLY filename:NAMA]]]\" hingga \"[[[/CV_ONLY filename:NAMA]]]\" dengan **NAMA sama** dengan file/judul kandidat; jangan melihat segmen CV_ONLY file lain saat menulis bukti untuk kandidat ini.
+- **Sebelum menulis judul ###:** salin **nama pelamar** huruf demi huruf dari teks CV (header/identitas) ke judul; **jangan** mengganti dengan kata **Nama Lengkap**. Jika tidak ada nama di teks, **Nama tidak tersurat (CV: …)** — bukan nama file saja.
 - Untuk tiap kandidat, hanya kutip atau rangkum ketat dari CV-nya; untuk setiap butir JD penting: tulis **ada bukti** atau **tidak disebutkan di CV** (bukan ditebak). Jangan pernah mengarang proyek atau stack teknologi.
 - Untuk penilaian ke JD: ambil **2–4 poin konkret** dari teks JD (skill, tool, domain, pengalaman). Untuk **tiap kandidat**, sebut bukti kutipan dari CV-nya **per poin** (**ada** / **tidak ada bukti**) lalu gap; **dilarang** melompat ke kata "relevan" tanpa pemetaan ini; akhiri dengan ringkasan gap vs JD hanya dari fakta tersebut.
 - Inferensi di luar teks CV dilarang kecuali satu baris dengan label persis: *Interpretasi wajar (bukan fakta di CV):* — dan hanya jika tidak mengubah fakta (mis. implikasi umum dari gelar yang memang tertulis).
@@ -194,9 +242,10 @@ FORMAT JAWABAN MARKDOWN (sesuaikan dengan jenis pertanyaan — lihat KEADILAN po
 
 ## Penilaian (pilih struktur sesuai pertanyaan — lihat KEADILAN poin 1 vs 2)
 - **Komparatif penuh:** ulangi blok ### **sekali per file CV** pada DAFTAR SUMBER.
-- **Paling cocok / top / prioritas:** gunakan **## Rekomendasi utama** (maks. 3 ### dengan bukti) lalu **## Kandidat lain (ringkas)** — bukan ### panjang untuk setiap orang.
+- **Paling cocok / top / prioritas / HR sebut angka N:** gunakan **## Rekomendasi utama** dengan **tepat paling banyak N** blok heading-3 berbukti (N dari angka di pertanyaan HR bila ada; bila tidak ada angka, N=3), lalu **## Kandidat lain (ringkas)** — **dilarang** lebih dari N blok penilaian ber-detail untuk bagian peringkat.
+- **Judul per kandidat (wajib):** satu baris heading Markdown level-3 yang dimulai dengan **nama pelamar yang Anda salin dari teks CV** (bukan frasa literal \"Nama Lengkap\" atau \"Nama Kandidat\"), lalu **(CV: namafile.pdf)**. Contoh bentuk benar: heading berisi **Rizky Hidayat (CV: dummy_cv_5.pdf)** — ganti Rizky Hidayat dengan nama yang benar-benar ada di segmen CV itu.
 
-### [Nama kandidat atau nama file CV]
+### [Salin nama nyata dari teks CV — dilarang tulis literal Nama Lengkap] (CV: namafile.pdf)
 - **Skor kecocokan JD:** XX/100 (atau jelaskan jika tidak applicable)
 - **Bukti eksplisit di CV (hanya dari CV orang ini):**
   - Hanya kutipan/parafrase ketat yang **tepat-tepat** berasal dari segmen \"[[[CV_ONLY filename:...]]]\" dengan **filename sama** dengan judul ### ini. ATAU satu bullet: **"CV tidak mencantumkan pengalaman kerja, skill teknis, proyek, atau peran apa pun."** Jangan menulis stack (Flutter, Firebase, mobile, backend, UI/UX, dll.) kecuali teks itu **ada di segmen CV_ONLY file ini**.
@@ -219,10 +268,15 @@ Akhiri dengan **satu** paragraf penutup singkat yang **konsisten** dengan ### di
 
     const sysPrompt = stitchRecruiterSysPrompt(recruiterPromptBody, limitedContext);
 
+    const qStr = typeof query === "string" ? query.trim() : String(query);
+    const askedN = typeof query === "string" ? extractRequestedCandidateCount(query) : null;
     const userMsg =
       typeof query === "string"
-        ? `Pertanyaan atau instruksi HR:\n${query.trim()}`
-        : String(query);
+        ? `Pertanyaan atau instruksi HR:\n${qStr}` +
+          (askedN != null
+            ? `\n\n[Instruksi sistem — wajib dipatuhi: HR meminta paling banyak **${askedN}** kandidat terpilih/terbaik. Di bagian peringkat (## Rekomendasi utama atau setara) beri **paling banyak ${askedN}** blok ### berisi bukti; **dilarang** lebih dari ${askedN}. Selebihnya ringkas saja di ## Kandidat lain.]`
+            : "")
+        : qStr;
 
     // Try OpenRouter dengan timeout
     if (openrouterKey) {
