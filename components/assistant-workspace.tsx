@@ -1,26 +1,118 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
-  Send, Bot, User, FileText, Download, Copy, ChevronDown, ChevronRight, ChevronLeft
+  Send,
+  Bot,
+  User,
+  FileText,
+  Copy,
+  ChevronDown,
+  ChevronRight,
+  Save,
+  FileType,
+  Printer,
+  Trash2,
+  Sparkles,
+  Briefcase,
+  MessageSquare,
 } from "lucide-react";
 import { useDocuments } from "@/components/documents-context";
 import FileUploadButton from "@/components/file-upload-button";
 import { ChatMarkdown } from "@/components/chat-markdown";
+import { JdCriteriaPanel } from "@/components/jd-criteria-panel";
+import { formatCvIdentityLine, resolveApplicantName } from "@/lib/recruiter-ranking";
+import { blocksFromTextPreferCv } from "@/lib/document-blocks";
+import {
+  criteriaToParsedBlocks,
+  getCriteriaById,
+  JD_CRITERIA_STORAGE_KEY,
+} from "@/lib/partner-jd-criteria";
+import { useJdCriteria } from "@/lib/jd-criteria-client";
 import { TabsContainer } from "@/components/ui/tabs";
+import { Dialog } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 // Client-side PDF parsing (avoid server worker issues)
 // We import lazily inside the function to keep SSR clean
 
 /* ========= Types ========= */
 type Msg = { id: string; role: "user" | "assistant"; text: string };
+
+/** Laporan sesi HR (tersimpan per user di localStorage) */
+type HrReport = {
+  id: string;
+  title: string;
+  createdAt: string;
+  documentNames: string[];
+  messages: Msg[];
+};
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function safeDownloadBasename(title: string): string {
+  return (title || "laporan").replace(/[^\w\-. ]+/g, "_").trim().slice(0, 80) || "laporan";
+}
+
+/** Jendela cetak browser → “Simpan sebagai PDF” (tanpa dependensi PDF baru) */
+function openReportPdfWindow(title: string, documentNames: string[], messages: Msg[]) {
+  const parts: string[] = [];
+  parts.push("<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>");
+  parts.push(escapeHtml(title));
+  parts.push(
+    "</title><style>@media print { .no-print { display: none } } body{font-family:system-ui,-apple-system,sans-serif;padding:24px;max-width:820px;margin:0 auto;color:#111;line-height:1.45} h1{font-size:1.25rem;margin:0 0 8px} .meta{color:#555;font-size:13px;margin-bottom:20px} .msg{margin-bottom:14px;padding:12px 14px;border-radius:8px;border:1px solid #e2e8f0} .msg.user{background:#eff6ff;border-color:#bfdbfe} .msg.asst{background:#f8fafc} .role{font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;color:#64748b} .body{white-space:pre-wrap;font-size:14px}</style></head><body>"
+  );
+  parts.push("<h1>", escapeHtml(title), "</h1>");
+  parts.push("<div class=\"meta\">", escapeHtml(new Date().toLocaleString("id-ID")), "</div>");
+  if (documentNames.length > 0) {
+    parts.push("<p class=\"text-sm\"><strong>Dokumen konteks</strong></p><ul class=\"text-sm\">");
+    for (const n of documentNames) {
+      parts.push("<li>", escapeHtml(n), "</li>");
+    }
+    parts.push("</ul><hr style=\"margin:20px 0;border:none;border-top:1px solid #e2e8f0\" />");
+  }
+  for (const m of messages) {
+    const cls = m.role === "user" ? "user" : "asst";
+    const lab = m.role === "user" ? "HR" : "Asisten AI";
+    parts.push(
+      `<div class="msg ${cls}"><div class="role">${lab}</div><div class="body">`,
+      escapeHtml(m.text),
+      "</div></div>"
+    );
+  }
+  parts.push(
+    "<p class=\"no-print\" style=\"margin-top:28px\"><button type=\"button\" onclick=\"window.print()\" style=\"padding:10px 16px;font-size:14px;cursor:pointer;border-radius:8px;border:1px solid #cbd5e1;background:#fff\">Cetak / simpan sebagai PDF</button></p>",
+    "<p class=\"no-print\" style=\"font-size:12px;color:#64748b;margin-top:8px\">Di dialog cetak, pilih &quot;Simpan sebagai PDF&quot; sebagai printer.</p>",
+    "</body></html>"
+  );
+  const w = window.open("", "_blank", "noopener,noreferrer");
+  if (!w) {
+    window.alert("Izinkan popup untuk membuka pratinjau cetak PDF.");
+    return;
+  }
+  w.document.write(parts.join(""));
+  w.document.close();
+}
 type ParsedBlock = { id: string; label: string; content: string };
 type DocItem = { id: string; name: string; status?: string; file?: File };
+
+/** Saran pertanyaan — hanya mengisi input, tidak auto-kirim */
+const CHAT_SUGGESTIONS = [
+  "Siapa kandidat paling cocok untuk posisi ini?",
+  "Ranking top 3 kandidat beserta alasan skor",
+  "Apa gap utama yang perlu diklarifikasi saat wawancara?",
+];
 
 /* ========= Utils ========= */
 const wait = (ms: number) => new Promise((res) => setTimeout(res, ms));
@@ -74,16 +166,134 @@ function splitToBlocksClient(text: string, blockSize = 1200): ParsedBlock[] {
   return out;
 }
 
-/** Batas kirim ke /api/rag/query — selaraskan dengan pemotongan server agar TPM Groq jarang kena */
-const RAG_QUERY_BODY_MAX_CHARS = 12000;
-const RAG_QUERY_JD_MAX_CHARS = 5600;
-const RAG_QUERY_MIN_CHARS_PER_CV = 480;
+/** Batas kirim ke /api/rag/query — selaraskan dengan MAX_CONTEXT_CHARS di server */
+const RAG_QUERY_BODY_MAX_CHARS = 20000;
+/** Riwayat chat multi-turn yang dikirim ke API (≈10 giliran user+assistant) */
+const CHAT_HISTORY_MAX_MESSAGES = 20;
+const RAG_QUERY_JD_MAX_CHARS = 6500;
+const RAG_QUERY_MIN_CHARS_PER_CV = 1400;
+
+const CV_EXCERPT_STOPWORDS = new Set([
+  "yang", "dengan", "untuk", "dari", "pada", "adalah", "akan", "atau", "dan", "di", "ke",
+  "ini", "itu", "saya", "kami", "anda", "mereka", "cocok", "kandidat", "rekomendasi",
+  "siapa", "mana", "bagaimana", "berapa", "the", "and", "for", "with", "from",
+]);
+
+/** Pola bukti domain umum (game dev, mobile, dll.) — dipakai saat CV harus dipotong */
+function relevancePatternsForQuery(query: string, jdText: string): RegExp[] {
+  const patterns: RegExp[] = [
+    /\bgame\b/i,
+    /\bgaming\b/i,
+    /game\s*dev/i,
+    /game\s*development/i,
+    /pengembang\s*game/i,
+    /permainan/i,
+    /unity/i,
+    /unreal/i,
+    /godot/i,
+    /cocos/i,
+    /phaser/i,
+    /gameplay/i,
+    /level\s*design/i,
+    /portofolio\s*game/i,
+    /membuat\s*game/i,
+    /mobile\s*game/i,
+    /studio\s*game/i,
+  ];
+  const blob = `${query} ${jdText}`.toLowerCase();
+  for (const w of blob.split(/[^a-zA-Z0-9\u00C0-\u024F]+/)) {
+    if (w.length < 4 || CV_EXCERPT_STOPWORDS.has(w)) continue;
+    patterns.push(new RegExp(w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
+  }
+  return patterns;
+}
+
+/**
+ * Saat CV melebihi jatah karakter: pertahankan header (nama) + paragraf yang cocok pertanyaan/JD,
+ * bukan hanya awal file (sering membuang pengalaman game di halaman bawah).
+ */
+/** Pertahankan blok PENGALAMAN / KETERAMPILAN saat CV dipotong */
+function preserveCvKeySections(fullText: string, maxSectionChars = 2200): string {
+  const parts: string[] = [];
+  for (const label of ["PENGALAMAN", "KETERAMPILAN", "KEAHLIAN", "SKILL", "EXPERIENCE"]) {
+    const re = new RegExp(`(${label}[^\\n]*\\n[\\s\\S]*?)(?=\\n[A-Z]{3,}[^\\na-z]|$)`, "i");
+    const m = fullText.match(re);
+    if (m?.[1]) {
+      const block = m[1].trim().slice(0, maxSectionChars);
+      if (block.length > 20 && !parts.some((p) => p.includes(block.slice(0, 40)))) {
+        parts.push(block);
+      }
+    }
+  }
+  if (parts.length === 0) return "";
+  return "\n\n--- [bagian penting CV: pengalaman & keterampilan] ---\n\n" + parts.join("\n\n");
+}
+
+function smartCvExcerpt(fullText: string, maxChars: number, query: string, jdText: string): string {
+  if (fullText.length <= maxChars) return fullText;
+
+  const keySections = preserveCvKeySections(fullText);
+  const patterns = relevancePatternsForQuery(query, jdText);
+  const headerSize = Math.min(950, Math.floor(maxChars * 0.38));
+  const header = fullText.slice(0, headerSize);
+  let used = header.length;
+
+  const paras = fullText.split(/\n+/).map((p) => p.trim()).filter((p) => p.length > 8);
+  const scored: { text: string; score: number }[] = [];
+
+  for (const p of paras) {
+    if (header.includes(p)) continue;
+    let score = 0;
+    for (const re of patterns) {
+      if (re.test(p)) score += 4;
+    }
+    if (/pengalaman|experience|proyek|project|skill|keahlian|pekerjaan|posisi|role/i.test(p)) {
+      score += 1;
+    }
+    if (score > 0) scored.push({ text: p, score });
+  }
+
+  scored.sort((a, b) => b.score - a.score);
+
+  const chunks: string[] = [header];
+  if (keySections && !header.includes(keySections.slice(0, 40))) {
+    chunks.push(keySections);
+    used += keySections.length;
+  }
+  const relMarker = "\n\n--- [cuplikan CV relevan pertanyaan HR] ---\n\n";
+  if (scored.length > 0 && used + relMarker.length < maxChars - 100) {
+    let rel = relMarker;
+    for (const { text } of scored) {
+      const add = (rel.endsWith("\n\n") || rel === relMarker ? "" : "\n") + text;
+      if (used + rel.length + add.length > maxChars - 150) break;
+      rel += add + "\n";
+    }
+    chunks.push(rel);
+    used += rel.length;
+  }
+
+  const tailBudget = maxChars - used - 90;
+  if (tailBudget > 250) {
+    const tail = fullText.slice(Math.max(headerSize, fullText.length - tailBudget));
+    if (!chunks.join("").includes(tail.slice(0, 60))) {
+      chunks.push("\n\n--- [lanjutan CV] ---\n\n" + tail);
+    }
+  }
+
+  let result = chunks.join("");
+  if (result.length > maxChars) {
+    result =
+      result.slice(0, maxChars) +
+      '\n\n[... isi CV dipersingkat; prioritaskan cuplikan relevan di atas — baca seluruh segmen sebelum menyimpulkan ...]';
+  }
+  return result;
+}
 
 /**
  * Susun konteks chat: daftar semua file CV di awal + bagi jatah karakter per CV
  * supaya tidak hanya 2–3 dokumen pertama yang terbaca sebelum pemotongan.
  */
-function buildBalancedRagContext(blocks: ParsedBlock[]): string {
+function buildBalancedRagContext(blocks: ParsedBlock[], hrQuery = ""): string {
   type Group = { kind: "CV" | "JOB DESCRIPTION"; file: string; chunks: string[] };
   const order: string[] = [];
   const byKey = new Map<string, Group>();
@@ -124,14 +334,23 @@ function buildBalancedRagContext(blocks: ParsedBlock[]): string {
 
   const rosterCv =
     cvKeys.length > 0
-      ? cvKeys.map((k, i) => `${i + 1}. ${byKey.get(k)!.file}`).join("\n")
+      ? cvKeys
+          .map((k, i) => {
+            const g = byKey.get(k)!;
+            const full = g.chunks.join("\n\n");
+            const name = resolveApplicantName(full, g.file);
+            return name
+              ? `${i + 1}. ${g.file} — pelamar: **${name}**`
+              : `${i + 1}. ${g.file}`;
+          })
+          .join("\n")
       : "(tidak ada file CV)";
 
   const roster =
     `=== DAFTAR SUMBER (semua nama file di bawah harus dipertimbangkan jika pertanyaan HR mengarah ke semua kandidat) ===\n` +
     `Job description / lowongan:\n${rosterJd}\n\n` +
     `CV kandidat (${cvKeys.length} file):\n${rosterCv}\n\n` +
-    `Instruksi: (a) Jika HR meminta **bandingkan semua / screening semua / sebutkan satu-satu / semua kandidat**, beri satu blok ### per file pada daftar di atas. (b) Jika HR hanya bertanya **siapa paling cocok / terbaik / top / prioritas**, jangan wajibkan ### panjang untuk semua: fokus pada 1–3 kandidat dengan bukti kuat di CV terhadap JD, lalu ringkas kandidat lain dalam satu bagian pendek. **Judul setiap blok kandidat harus memuat nama orang dari teks CV** + (CV: nama file), bukan hanya nama file.\n` +
+    `Instruksi: (a) Jika HR meminta **bandingkan semua / screening semua / sebutkan satu-satu / semua kandidat**, beri satu blok ### per file pada daftar di atas. (b) Jika HR hanya bertanya **siapa paling cocok / terbaik / top / N kandidat / prioritas**, beri **tepat N** (atau 3 jika tidak disebut) di Rekomendasi utama hanya yang punya bukti positif terhadap role yang ditanya; sisanya ringkas di Kandidat lain **tanpa mengulang** nama yang sudah di utama. (c) Baca **seluruh** segmen [[[CV_ONLY]]] termasuk bagian [cuplikan CV relevan] — jangan hanya paragraf awal. **Judul setiap blok kandidat harus memuat nama orang dari teks CV** + (CV: nama file).\n` +
     `[Selesai daftar]\n\n`;
 
   const jdSectionLen = jdJoined ? jdJoined.length + 32 : 0;
@@ -142,21 +361,27 @@ function buildBalancedRagContext(blocks: ParsedBlock[]): string {
 
   let perCv = nCv > 0 ? Math.floor(remaining / nCv) : remaining;
   if (nCv > 0 && perCv < RAG_QUERY_MIN_CHARS_PER_CV) {
-    perCv = Math.max(320, Math.floor(remaining / nCv));
+    perCv = Math.max(nCv <= 3 ? 1800 : 600, Math.floor(remaining / nCv));
+  }
+  if (nCv <= 4 && perCv < 2200) {
+    perCv = Math.min(2800, Math.max(perCv, Math.floor(remaining / Math.max(nCv, 1))));
   }
 
   const cvSections: string[] = [];
+  const jdHintForExcerpt = jdJoined.slice(0, 3000);
+
   for (const k of cvKeys) {
     const g = byKey.get(k)!;
-    let chunk = g.chunks.join("\n\n");
+    const fullText = g.chunks.join("\n\n");
+    let chunk = fullText;
     if (chunk.length > perCv) {
-      chunk =
-        chunk.slice(0, perCv) +
-        `\n\n[... isi CV "${g.file}" dipersingkat agar setiap kandidat mendapat jatah dalam batas panjang konteks ...]`;
+      chunk = smartCvExcerpt(fullText, perCv, hrQuery, jdHintForExcerpt);
     }
     const safeName = g.file.replace(/\]/g, ")").replace(/\[/g, "(");
+    const identityLine = formatCvIdentityLine(fullText, safeName);
     cvSections.push(
       `[[[CV_ONLY filename:${safeName}]]]\n` +
+        identityLine +
         `INSTRUKSI UNTUK MODEL: Seluruh teks antara penanda ini HANYA milik file CV "${safeName}". ` +
         `Cari nama pelamar di teks CV di bawah (biasanya baris awal / header). Di jawaban, judul untuk kandidat ini harus heading Markdown: nama asli dari teks + (CV: ${safeName}). ` +
         `**Dilarang** menulis frasa literal \"Nama Lengkap\" atau \"Nama Kandidat\" sebagai pengganti nama. ` +
@@ -186,44 +411,69 @@ async function mockExtract(file: File): Promise<Record<string, string>> {
   return { title: file.name, authors: "Penulis A; Penulis B", year: "2018", keywords: "contoh, demo" };
 }
 
-/** Ingest file -> simpan parsedBlocks ke state, buka semua blok */
+/** Ingest file → parsedBlocks (pipeline sama dengan upload: Docling/OCR/tabel) */
 async function autoIngest(
   file: File,
   docId: string,
   setParsedById: React.Dispatch<React.SetStateAction<Record<string, ParsedBlock[]>>>,
-  setOpenBlocks: React.Dispatch<React.SetStateAction<Record<string, Record<string, boolean>>>>
+  setOpenBlocks: React.Dispatch<React.SetStateAction<Record<string, Record<string, boolean>>>>,
+  existingParsedText?: string
 ) {
   let blocks: ParsedBlock[] = [];
-  const isPdf = file.type?.includes("pdf") || file.name?.toLowerCase().endsWith(".pdf");
-  
-  if (isPdf) {
-    // Parse PDF using pdfplumber via API (better table extraction)
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/pdf/parse", { method: "POST", body: fd });
-      const d = await res.json().catch(() => ({}));
-      if (res.ok && d.text) {
-        blocks = splitToBlocksClient(d.text);
-      } else {
-        // Fallback to client-side parsing
-        const text = await parsePdfInBrowser(file);
-        blocks = splitToBlocksClient(text);
-      }
-    } catch (error) {
-      // Fallback to client-side parsing if pdfplumber fails
-      console.warn("Pdfplumber failed, using PDF.js fallback:", error);
-      const text = await parsePdfInBrowser(file);
-      blocks = splitToBlocksClient(text);
+  let ingestError: Error | null = null;
+
+  if (existingParsedText && existingParsedText.trim().length > 60) {
+    blocks = blocksFromTextPreferCv(existingParsedText);
+    if (blocks.length > 0 && blocks[0].content !== "(empty file)") {
+      setParsedById((prev) => ({ ...prev, [docId]: blocks }));
+      setOpenBlocks((prev) => ({
+        ...prev,
+        [docId]: blocks.reduce((acc, b) => ((acc[b.id] = true), acc), {} as Record<string, boolean>),
+      }));
+      return blocks;
     }
-  } else {
+  }
+
+  try {
     const fd = new FormData();
     fd.append("file", file);
-    const res = await fetch("/api/rag/ingest", { method: "POST", body: fd });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120000);
+    const res = await fetch("/api/rag/ingest", {
+      method: "POST",
+      body: fd,
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeoutId));
     const d = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(d?.error || "Ingest gagal");
-    blocks = d.parsedBlocks || [];
+    if (res.ok && Array.isArray(d.parsedBlocks) && d.parsedBlocks.length > 0) {
+      blocks = d.parsedBlocks;
+    } else if (!res.ok) {
+      throw new Error(d?.error || "Ingest gagal");
+    }
+  } catch (e: unknown) {
+    ingestError = e instanceof Error ? e : new Error(String(e));
+    console.warn("Ingest API gagal, fallback parse lokal:", ingestError.message);
   }
+
+  if (blocks.length === 0) {
+    const isPdf = file.type?.includes("pdf") || file.name?.toLowerCase().endsWith(".pdf");
+    if (isPdf) {
+      try {
+        const text = await parsePdfInBrowser(file);
+        blocks = blocksFromTextPreferCv(text);
+      } catch {
+        blocks = splitToBlocksClient("(gagal mengekstrak teks dari PDF)");
+      }
+    } else {
+      throw ingestError ?? new Error("Gagal mengekstrak dokumen");
+    }
+  }
+
+  const totalChars = blocks.reduce((s, b) => s + (b.content?.length || 0), 0);
+  if (totalChars < 40) {
+    console.warn(`⚠️ Ekstraksi teks sangat sedikit untuk ${file.name} (${totalChars} chars)`);
+  }
+
   setParsedById((prev) => ({ ...prev, [docId]: blocks }));
   setOpenBlocks((prev) => ({
     ...prev,
@@ -253,30 +503,75 @@ export default function AssistantWorkspace() {
   const router = useRouter();
   const { documents, addFromFiles, addQuery } = useDocuments();
 
-  // Dokumen aktif
-  const [currentId, setCurrentId] = useState<string | null>(null);
-  const currentDoc = useMemo(
-    () => documents.find((d) => d.id === currentId),
-    [documents, currentId]
+  // Kriteria / JD mitra (panel kiri) — dimuat dari API (sinkron dengan dashboard Admin)
+  const { criteria: jdCriteriaList, loading: jdCriteriaLoading, refresh: refreshJdCriteria } =
+    useJdCriteria();
+  const [selectedCriteriaId, setSelectedCriteriaId] = useState<string | null>(null);
+  const [criteriaReady, setCriteriaReady] = useState(false);
+
+  useEffect(() => {
+    if (jdCriteriaLoading || jdCriteriaList.length === 0) return;
+    if (typeof window === "undefined") return;
+    try {
+      const stored = localStorage.getItem(JD_CRITERIA_STORAGE_KEY);
+      if (stored && getCriteriaById(stored, jdCriteriaList)) {
+        setSelectedCriteriaId(stored);
+      } else if (jdCriteriaList[0]) {
+        setSelectedCriteriaId(jdCriteriaList[0].id);
+      }
+    } catch {
+      if (jdCriteriaList[0]) setSelectedCriteriaId(jdCriteriaList[0].id);
+    } finally {
+      setCriteriaReady(true);
+    }
+  }, [jdCriteriaLoading, jdCriteriaList]);
+
+  useEffect(() => {
+    if (selectedCriteriaId && !getCriteriaById(selectedCriteriaId, jdCriteriaList) && jdCriteriaList[0]) {
+      setSelectedCriteriaId(jdCriteriaList[0].id);
+    }
+  }, [jdCriteriaList, selectedCriteriaId]);
+
+  useEffect(() => {
+    if (!criteriaReady || !selectedCriteriaId) return;
+    try {
+      localStorage.setItem(JD_CRITERIA_STORAGE_KEY, selectedCriteriaId);
+    } catch {
+      /* ignore */
+    }
+  }, [selectedCriteriaId, criteriaReady]);
+
+  const selectedCriteria = useMemo(
+    () => getCriteriaById(selectedCriteriaId, jdCriteriaList),
+    [selectedCriteriaId, jdCriteriaList]
   );
 
-  // Preview URL
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  useEffect(() => {
-    if (currentDoc?.file) {
-      const url = URL.createObjectURL(currentDoc.file);
-      setPreviewUrl(url);
-      return () => URL.revokeObjectURL(url);
-    }
-    setPreviewUrl(null);
-  }, [currentDoc?.file]);
+  const handleSelectCriteria = useCallback((id: string) => {
+    setSelectedCriteriaId(id);
+  }, []);
 
-  // Pilih doc pertama otomatis
+  // Dokumen CV aktif (tab Parse — preview teks hasil ekstraksi)
+  const isLikelyJdFile = (fileName: string) => {
+    const lower = fileName.toLowerCase();
+    return /jd\b|job\s*description|lowongan|requirement|kriteria\s*posisi|deskripsi\s*pekerjaan/.test(lower) || lower.includes("job_desc") || lower.startsWith("jd_");
+  };
+
+  const cvDocuments = useMemo(
+    () => documents.filter((d) => !isLikelyJdFile(d.name)),
+    [documents]
+  );
+
+  const [currentId, setCurrentId] = useState<string | null>(null);
+  const currentDoc = useMemo(
+    () => cvDocuments.find((d) => d.id === currentId),
+    [cvDocuments, currentId]
+  );
+
   useEffect(() => {
-    if (!currentId && documents.length > 0) {
-      setCurrentId(documents[0].id);
+    if (!currentId && cvDocuments.length > 0) {
+      setCurrentId(cvDocuments[0].id);
     }
-  }, [documents, currentId]);
+  }, [cvDocuments, currentId]);
 
   // Hasil Parse & Extract per dokumen
   const [parsedById, setParsedById] = useState<Record<string, ParsedBlock[]>>({});
@@ -293,7 +588,7 @@ export default function AssistantWorkspace() {
       console.log(`🔄 Auto-parsing ${processedDocs.length} processed document(s)...`);
       processedDocs.forEach(async (doc) => {
         try {
-          await autoIngest(doc.file!, doc.id, setParsedById, setOpenBlocks);
+          await autoIngest(doc.file!, doc.id, setParsedById, setOpenBlocks, doc.parsedText);
           console.log(`✅ Auto-parsed: ${doc.name}`);
         } catch (e) {
           console.error(`❌ Failed to auto-parse ${doc.name}:`, e);
@@ -322,8 +617,13 @@ export default function AssistantWorkspace() {
   const [input, setInput] = useState("");
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [chatStorageKey, setChatStorageKey] = useState<string | null>(null);
+  const [reportsStorageKey, setReportsStorageKey] = useState<string | null>(null);
+  const [reportsReady, setReportsReady] = useState(false);
+  const [savedReports, setSavedReports] = useState<HrReport[]>([]);
+  const [reportsDialogOpen, setReportsDialogOpen] = useState(false);
+  const [exportingDocx, setExportingDocx] = useState(false);
 
-  // Tentukan key penyimpanan berdasarkan user Supabase (per HR)
+  // Key penyimpanan chat + laporan berdasarkan user Supabase (per HR)
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -332,19 +632,34 @@ export default function AssistantWorkspace() {
         const supabase = createClient();
         const { data } = await supabase.auth.getUser();
         const userId = data.user?.id;
-        const key = userId ? `rag_chat_history_v1_${userId}` : "rag_chat_history_v1_guest";
-        setChatStorageKey(key);
+        const chatKey = userId ? `rag_chat_history_v1_${userId}` : "rag_chat_history_v1_guest";
+        const repKey = userId ? `rag_hr_reports_v1_${userId}` : "rag_hr_reports_v1_guest";
+        setChatStorageKey(chatKey);
+        setReportsStorageKey(repKey);
 
-        // Load riwayat jika ada
-        const raw = localStorage.getItem(key);
+        const raw = localStorage.getItem(chatKey);
         if (raw) {
           const parsed = JSON.parse(raw) as Msg[];
           if (Array.isArray(parsed)) {
             setMsgs(parsed);
           }
         }
+
+        const rawRep = localStorage.getItem(repKey);
+        if (rawRep) {
+          try {
+            const parsedRep = JSON.parse(rawRep) as HrReport[];
+            if (Array.isArray(parsedRep)) {
+              setSavedReports(parsedRep);
+            }
+          } catch {
+            /* abaikan data rusak */
+          }
+        }
       } catch (e) {
-        console.warn("Gagal inisialisasi riwayat chat:", e);
+        console.warn("Gagal inisialisasi riwayat chat / laporan:", e);
+      } finally {
+        setReportsReady(true);
       }
     })();
   }, []);
@@ -360,12 +675,18 @@ export default function AssistantWorkspace() {
     }
   }, [msgs, chatStorageKey]);
 
+  // Simpan daftar laporan HR (setelah reportsReady agar tidak menimpa sebelum load)
+  useEffect(() => {
+    if (typeof window === "undefined" || !reportsStorageKey || !reportsReady) return;
+    try {
+      localStorage.setItem(reportsStorageKey, JSON.stringify(savedReports));
+    } catch (e) {
+      console.warn("Gagal simpan laporan ke localStorage:", e);
+    }
+  }, [savedReports, reportsStorageKey, reportsReady]);
+
   // Tab state untuk panel kanan
   const [activeTab, setActiveTab] = useState<"parse" | "chat">("chat");
-
-  // PDF page navigation
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
 
   /* ===== Handlers ===== */
 
@@ -423,7 +744,8 @@ export default function AssistantWorkspace() {
         
         // Auto-parse in background
         addNotification('success', `Memulai parsing ${file.name}...`);
-        await autoIngest(file, doc.id, setParsedById, setOpenBlocks);
+        const uploaded = documents.find((d) => d.id === doc.id);
+        await autoIngest(file, doc.id, setParsedById, setOpenBlocks, uploaded?.parsedText);
         addNotification('success', `✅ ${file.name} berhasil diparsing!`);
       } catch (e: any) {
         addNotification('error', `❌ Gagal parsing ${file.name}: ${e.message || "Unknown error"}`);
@@ -436,7 +758,7 @@ export default function AssistantWorkspace() {
     if (!currentDoc?.file || !currentId) return alert("Pilih dokumen yang punya file.");
     setIsParsing(true);
     try {
-      await autoIngest(currentDoc.file, currentId, setParsedById, setOpenBlocks);
+      await autoIngest(currentDoc.file, currentId, setParsedById, setOpenBlocks, currentDoc.parsedText);
     } catch (e: any) {
       alert(e.message || "Ingest error");
     } finally {
@@ -464,7 +786,7 @@ export default function AssistantWorkspace() {
         setIsParsing(true);
         for (const doc of unparsedDocs) {
           try {
-            await autoIngest(doc.file!, doc.id, setParsedById, setOpenBlocks);
+            await autoIngest(doc.file!, doc.id, setParsedById, setOpenBlocks, doc.parsedText);
           } catch (e) {
             console.error(`Failed to parse ${doc.name}:`, e);
           }
@@ -472,50 +794,49 @@ export default function AssistantWorkspace() {
         setIsParsing(false);
       }
 
-      // Deteksi JD (Job Description) vs CV dari nama file
-      const isLikelyJd = (fileName: string) => {
-        const lower = fileName.toLowerCase();
-        return /jd\b|job\s*description|lowongan|requirement|kriteria\s*posisi|deskripsi\s*pekerjaan/.test(lower) || lower.includes("job_desc") || lower.startsWith("jd_");
-      };
+      // Deteksi JD dari file upload (diabaikan jika kriteria mitra sudah dipilih)
+      const isLikelyJd = (fileName: string) => isLikelyJdFile(fileName);
 
-      // Kumpulkan blocks dari SEMUA dokumen yang sudah diparsed
-      const allBlocks: ParsedBlock[] = [];
+      const partnerJdBlocks = selectedCriteria ? criteriaToParsedBlocks(selectedCriteria) : [];
+
+      // Kumpulkan blocks CV dari semua dokumen yang sudah diparsed
+      const cvBlocksFromDocs: ParsedBlock[] = [];
       const docNames: Record<string, string> = {};
       
-      // Ambil dari parsedById terlebih dahulu
       documents.forEach((doc) => {
+        if (selectedCriteria && isLikelyJd(doc.name)) return;
         if (doc.status === "Processed" && parsedById[doc.id] && parsedById[doc.id].length > 0) {
           const blocks = parsedById[doc.id];
           docNames[doc.id] = doc.name;
-          const docType = isLikelyJd(doc.name) ? "JOB DESCRIPTION" : "CV";
           blocks.forEach((block) => {
-            allBlocks.push({
+            cvBlocksFromDocs.push({
               ...block,
-              label: `[${docType} - ${doc.name}] ${block.label}`,
+              label: `[CV - ${doc.name}] ${block.label}`,
             });
           });
         }
       });
 
-      // Jika tidak ada blocks dari parsedById, coba parse semua dokumen yang "Processed"
-      if (allBlocks.length === 0 && documents.length > 0) {
-        const processedDocs = documents.filter((d) => d.file && d.status === "Processed");
+      let allBlocks: ParsedBlock[] = [...partnerJdBlocks, ...cvBlocksFromDocs];
+
+      // Jika belum ada blocks, parse CV yang belum diproses
+      if (cvBlocksFromDocs.length === 0 && cvDocuments.length > 0) {
+        const processedDocs = cvDocuments.filter((d) => d.file && d.status === "Processed");
         if (processedDocs.length > 0) {
           setIsParsing(true);
-          console.log(`📄 Parsing ${processedDocs.length} document(s) for query...`);
+          console.log(`📄 Parsing ${processedDocs.length} CV for query...`);
           
           for (const doc of processedDocs) {
             try {
-              const blocks = await autoIngest(doc.file!, doc.id, setParsedById, setOpenBlocks);
-              const docType = isLikelyJd(doc.name) ? "JOB DESCRIPTION" : "CV";
+              const blocks = await autoIngest(doc.file!, doc.id, setParsedById, setOpenBlocks, doc.parsedText);
               blocks.forEach((block) => {
                 allBlocks.push({
                   ...block,
-                  label: `[${docType} - ${doc.name}] ${block.label}`,
+                  label: `[CV - ${doc.name}] ${block.label}`,
                 });
               });
               console.log(`✅ Parsed ${doc.name}: ${blocks.length} blocks`);
-            } catch (e: any) {
+            } catch (e: unknown) {
               console.error(`❌ Failed to parse ${doc.name}:`, e);
             }
           }
@@ -536,7 +857,7 @@ export default function AssistantWorkspace() {
       let context = "";
       
       if (allBlocks.length > 0) {
-        const body = buildBalancedRagContext(allBlocks);
+        const body = buildBalancedRagContext(allBlocks, text);
         const docCount = new Set(
           allBlocks.map((b) => {
             const m = b.label.match(/^\[(CV|JOB DESCRIPTION) - ([^\]]+)\]/);
@@ -544,20 +865,54 @@ export default function AssistantWorkspace() {
           })
         ).size;
 
-        context = `=== INFORMASI: Terdapat ${docCount} dokumen (dapat berisi Job Description/lowongan dan/atau CV kandidat). Gunakan untuk menjawab pertanyaan HR. ===\n\n${body}`;
+        const criteriaHeader = selectedCriteria
+          ? `=== KRITERIA LOWONGAN AKTIF (HR sudah memilih di panel) ===\n` +
+            `Kriteria aktif: **${selectedCriteria.title}** (${selectedCriteria.department}, ${selectedCriteria.id})\n` +
+            `Posisi: ${selectedCriteria.title}\n` +
+            `Departemen: ${selectedCriteria.department}\n\n` +
+            `${selectedCriteria.fullText}\n\n` +
+            `=== AKHIR KRITERIA AKTIF ===\n\n` +
+            `Instruksi: Semua pertanyaan screening ("posisi ini", "paling cocok", "top N") merujuk ke kriteria **${selectedCriteria.title}** di atas.\n\n`
+          : "";
+
+        context = criteriaHeader + `=== INFORMASI: Screening CV kandidat terhadap kriteria posisi mitra. ===\n\n${body}`;
+      } else if (selectedCriteria && partnerJdBlocks.length > 0) {
+        context =
+          `=== Kriteria dipilih: ${selectedCriteria.title} (${selectedCriteria.department}) ===\n\n` +
+          selectedCriteria.fullText +
+          `\n\n=== Belum ada CV diunggah. Upload CV di header untuk screening. ===`;
       } else {
         const uploadedDocs = documents.filter((d) => d.status === "Processed");
         if (uploadedDocs.length > 0) {
-          context = `=== PERINGATAN: Terdapat ${uploadedDocs.length} dokumen yang sudah diupload (${uploadedDocs.map(d => d.name).join(", ")}) tetapi belum berhasil diparsing. Silakan coba upload ulang atau refresh halaman. ===`;
+          context = `=== PERINGATAN: Terdapat ${uploadedDocs.length} CV diunggah tetapi belum berhasil diparsing. Pilih kriteria di panel kiri dan coba upload ulang. ===`;
+        } else if (!selectedCriteria) {
+          context = "(no context — pilih kriteria/JD di panel kiri dan upload CV kandidat.)";
         } else {
-          context = "(no context - belum ada dokumen. Silakan upload Job Description (JD) dan/atau CV kandidat di Kelola Dokumen.)";
+          context = `(Kriteria: ${selectedCriteria.title}. Upload CV kandidat di header untuk memulai screening.)`;
         }
       }
+
+      const chatHistory = msgs.slice(-CHAT_HISTORY_MAX_MESSAGES).map((m) => ({
+        role: m.role,
+        content: m.text,
+      }));
 
       const res = await fetch("/api/rag/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: text, context }),
+        body: JSON.stringify({
+          query: text,
+          context,
+          history: chatHistory,
+          activeCriteria: selectedCriteria
+            ? {
+                id: selectedCriteria.id,
+                title: selectedCriteria.title,
+                department: selectedCriteria.department,
+                fullText: selectedCriteria.fullText,
+              }
+            : null,
+        }),
       });
 
       const d = await res.json().catch(() => ({}));
@@ -594,189 +949,142 @@ export default function AssistantWorkspace() {
     setMsgs([]);
   };
 
+  const currentExportTitle = () => `Sesi HR — ${new Date().toLocaleString("id-ID")}`;
+
+  const downloadDocx = async (title: string, documentNames: string[], messages: Msg[], createdAt?: string) => {
+    if (messages.length === 0) {
+      addNotification("error", "Tidak ada pesan untuk diekspor.");
+      return;
+    }
+    setExportingDocx(true);
+    try {
+      const res = await fetch("/api/reports/docx", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          createdAt: createdAt ?? new Date().toISOString(),
+          documentNames,
+          messages: messages.map(({ role, text }) => ({ role, text })),
+        }),
+      });
+      if (!res.ok) {
+        const d = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(d.error || "Gagal membuat DOCX");
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${safeDownloadBasename(title)}.docx`;
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      addNotification("success", "File DOCX berhasil diunduh.");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Gagal ekspor DOCX";
+      addNotification("error", msg);
+    } finally {
+      setExportingDocx(false);
+    }
+  };
+
+  const handleSaveReport = () => {
+    if (msgs.length === 0) {
+      addNotification("error", "Belum ada percakapan untuk disimpan.");
+      return;
+    }
+    const defaultTitle = `Laporan ${new Date().toLocaleString("id-ID")}`;
+    const title = window.prompt("Judul laporan:", defaultTitle);
+    if (title === null) return;
+    const trimmed = title.trim() || defaultTitle;
+    const report: HrReport = {
+      id: crypto.randomUUID?.() ?? `${Date.now()}`,
+      title: trimmed,
+      createdAt: new Date().toISOString(),
+      documentNames: documents.map((d) => d.name),
+      messages: msgs.map((m) => ({ ...m })),
+    };
+    setSavedReports((prev) => [report, ...prev]);
+    addNotification(
+      "success",
+      "Laporan disimpan. Buka \"Laporan tersimpan\" untuk melihat, mencetak PDF, atau mengunduh DOCX."
+    );
+  };
+
+  const handleLoadReportIntoChat = (r: HrReport) => {
+    const ok = window.confirm(
+      `Memuat "${r.title}" akan mengganti riwayat chat di layar ini. Anda masih bisa menyimpan ulang atau mengekspor. Lanjut?`
+    );
+    if (!ok) return;
+    setMsgs(r.messages.map((m) => ({ ...m })));
+    setReportsDialogOpen(false);
+    addNotification("success", "Riwayat chat diganti dari laporan.");
+  };
+
+  const handleDeleteSavedReport = (id: string) => {
+    const ok = window.confirm("Hapus laporan ini dari perangkat Anda?");
+    if (!ok) return;
+    setSavedReports((prev) => prev.filter((x) => x.id !== id));
+    addNotification("success", "Laporan dihapus.");
+  };
+
+  const handleExportCurrentPdf = () => {
+    openReportPdfWindow(currentExportTitle(), documents.map((d) => d.name), msgs);
+  };
+
+  const handleExportCurrentDocx = () => {
+    void downloadDocx(currentExportTitle(), documents.map((d) => d.name), msgs);
+  };
+
   /* ===== Komponen kecil ===== */
   const Separator = () => <div className="w-full h-px bg-border" />;
 
+  const onSelectCriteria = (id: string) => {
+    handleSelectCriteria(id);
+    const c = getCriteriaById(id, jdCriteriaList);
+    if (c) addNotification("success", `Kriteria: ${c.title}`);
+  };
 
-  // Update PDF pages when document changes
-  useEffect(() => {
-    if (currentDoc?.file && previewUrl) {
-      const ext = (currentDoc.name.split(".").pop() || "").toLowerCase();
-      if (ext === "pdf") {
-        // Try to get total pages from PDF
-        const loadPdfPages = async () => {
-          try {
-            const { getDocument } = (await import("pdfjs-dist")) as any;
-            const buf = new Uint8Array(await currentDoc.file!.arrayBuffer());
-            const pdf = await getDocument({ data: buf, disableWorker: true }).promise;
-            setTotalPages(pdf.numPages);
-            setCurrentPage(1);
-          } catch (e) {
-            console.warn("Could not load PDF pages:", e);
-            setTotalPages(1);
-          }
-        };
-        loadPdfPages();
-      }
-    }
-  }, [currentDoc?.file, previewUrl]);
-
-  const handlePrevPage = useCallback(() => {
-    setCurrentPage((p) => Math.max(1, p - 1));
-  }, []);
-
-  const handleNextPage = useCallback(() => {
-    setCurrentPage((p) => Math.min(totalPages, p + 1));
-  }, [totalPages]);
-
-  const handleDownload = useCallback(() => {
-    if (!previewUrl || !currentDoc) return;
-    const a = document.createElement("a");
-    a.href = previewUrl;
-    a.download = currentDoc.name;
-    a.click();
-  }, [previewUrl, currentDoc]);
-
-  const CvPreviewPane = useMemo(
-    () =>
-      memo(function CvPreviewPaneInner(props: {
-        doc: typeof currentDoc;
-        url: string | null;
-        page: number;
-        pages: number;
-        onPrev: () => void;
-        onNext: () => void;
-        onDownload: () => void;
-      }) {
-        const { doc, url, page, pages, onPrev, onNext, onDownload } = props;
-
-        if (!doc || !url) {
-          return (
-            <div className="flex items-center justify-center h-full text-muted-foreground">
-              <div className="text-center">
-                <FileText className="h-16 w-16 mx-auto mb-4 opacity-50" />
-                <p className="text-sm">Pilih dokumen untuk melihat preview</p>
-                <p className="text-xs mt-2 opacity-75">Upload CV di header untuk memulai</p>
-              </div>
-            </div>
-          );
-        }
-
-        const ext = (doc.name.split(".").pop() || "").toLowerCase();
-        const isPDF = ext === "pdf";
-        const isImg = ["png", "jpg", "jpeg", "gif", "webp"].includes(ext);
-
-        return (
-          <div className="flex flex-col h-full">
-            {/* Header Controls */}
-            <div className="flex items-center justify-between p-4 border-b border-border bg-card/50">
-              <div className="flex items-center gap-3 min-w-0">
-                <FileText className="h-5 w-5 text-muted-foreground" />
-                <div className="flex flex-col min-w-0">
-                  <span className="text-sm font-medium text-foreground truncate max-w-[300px]">{doc.name}</span>
-                  {isPDF && (
-                    <span className="text-xs text-muted-foreground">
-                      Halaman {page} / {pages}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {isPDF && (
-                  <>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={onPrev}
-                      disabled={page === 1}
-                      className="h-8 w-8 p-0"
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={onNext}
-                      disabled={page === pages}
-                      className="h-8 w-8 p-0"
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </>
-                )}
-                <Button variant="ghost" size="sm" onClick={onDownload} className="h-8 w-8 p-0">
-                  <Download className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-
-            {/* Content */}
-            <div className="flex-1 overflow-auto bg-muted/20 p-4">
-              {isPDF ? (
-                <div className="flex justify-center h-full">
-                  <iframe
-                    src={`${url}#page=${page}`}
-                    className="w-full h-full rounded-md border border-border bg-white shadow-lg"
-                    style={{ minHeight: "600px" }}
-                  />
-                </div>
-              ) : isImg ? (
-                <div className="flex justify-center">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={url}
-                    alt={doc.name}
-                    className="max-w-full max-h-full object-contain rounded-md border border-border shadow-lg"
-                  />
-                </div>
-              ) : (
-                <div className="flex items-center justify-center h-full text-muted-foreground">
-                  <div className="text-center">
-                    <FileText className="h-16 w-16 mx-auto mb-4 opacity-50" />
-                    <p className="text-sm">Preview tidak tersedia untuk .{ext}</p>
-                    <p className="text-xs mt-2 opacity-75">Saran: konversi ke PDF</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      }),
-    []
-  );
-
-  /* ===== UI: Split View (PDF Preview Kiri | Tabs Kanan) ===== */
+  /* ===== UI: Split View (Kriteria JD Kiri | Chat Kanan) ===== */
   return (
     <div className="min-h-screen page-gradient flex flex-col">
       {/* Header */}
-      <div className="border-b border-border bg-card/70 glass soft-shadow">
-        <div className="flex h-16 items-center justify-between px-6">
-          <div className="flex items-center gap-4">
-            <h1 className="text-xl font-semibold text-gradient">AI Assistant Workspace</h1>
+      <div className="border-b border-border/80 aw-header soft-shadow sticky top-0 z-40">
+        <div className="flex h-[4.25rem] items-center justify-between px-4 md:px-6 gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="h-10 w-10 rounded-xl aw-bot-avatar flex items-center justify-center shrink-0">
+              <Sparkles className="h-5 w-5 text-[#6fb7ff]" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-lg md:text-xl font-semibold text-gradient truncate">AI Assistant Workspace</h1>
+              <p className="text-[11px] text-muted-foreground hidden sm:block">
+                Screening CV vs kriteria JD — PT Sosro Gunung Slamet
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-3">
-            {/* Document Selector */}
+          <div className="flex items-center gap-2 shrink-0">
             {documents.length > 0 && (
-              <div className="flex items-center gap-2">
-                <select
-                  value={currentId || ""}
-                  onChange={(e) => setCurrentId(e.target.value)}
-                  className="px-3 py-1.5 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
-                >
-                  {documents.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name} {d.status === "Processed" ? "✓" : "⏳"}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <Badge variant="outline" className="hidden md:inline-flex text-[10px] gap-1">
+                <FileText className="h-3 w-3" />
+                {documents.length} CV
+              </Badge>
+            )}
+            {selectedCriteria && (
+              <Badge className="hidden sm:inline-flex max-w-[220px] truncate text-[10px] aw-jd-badge text-foreground border">
+                <Briefcase className="h-3 w-3 mr-1 shrink-0" />
+                {selectedCriteria.title}
+              </Badge>
             )}
             <FileUploadButton
               onSelectFiles={onUpload}
               label="Upload CV"
               size="sm"
               variant="default"
-              className="gap-2 btn-gradient"
+              className="gap-2 btn-figma border-0 admin-action-btn"
               multiple
             />
           </div>
@@ -785,42 +1093,119 @@ export default function AssistantWorkspace() {
 
       {/* Notifications */}
       {notifications.length > 0 && (
-        <div className="fixed top-20 right-4 z-50 space-y-2">
+        <div className="fixed top-[5.5rem] right-4 z-50 space-y-2">
           {notifications.map((notification) => (
             <div
               key={notification.id}
-              className={`px-4 py-3 rounded-lg shadow-lg border backdrop-blur-sm max-w-sm transform transition-all duration-300 ease-in-out animate-in slide-in-from-right-5 ${
-                notification.type === 'success'
-                  ? 'bg-emerald-500/90 text-white border-emerald-400'
-                  : 'bg-red-500/90 text-white border-red-400'
-              }`}
+              className={cn(
+                "aw-msg-enter px-4 py-3 rounded-xl shadow-lg border backdrop-blur-md max-w-sm",
+                notification.type === "success"
+                  ? "bg-emerald-500/90 text-white border-emerald-400"
+                  : "bg-red-500/90 text-white border-red-400"
+              )}
             >
-              <div className="flex items-center gap-2">
-                <div className="text-sm font-medium">{notification.message}</div>
-              </div>
+              <div className="text-sm font-medium">{notification.message}</div>
             </div>
           ))}
         </div>
       )}
 
+      <Dialog open={reportsDialogOpen} onOpenChange={setReportsDialogOpen} title="Laporan tersimpan">
+        {savedReports.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Belum ada laporan. Setelah sesi tanya-jawab dengan AI, gunakan{" "}
+            <strong className="text-foreground">Simpan laporan</strong> di tab Chat, lalu ekspor PDF atau DOCX bila
+            diperlukan.
+          </p>
+        ) : (
+          <ul className="space-y-3">
+            {savedReports.map((r) => (
+              <li
+                key={r.id}
+                className="rounded-lg border border-border/80 bg-card/40 p-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <p className="font-medium truncate">{r.title}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {new Date(r.createdAt).toLocaleString("id-ID")} · {r.messages.length} pesan
+                    {r.documentNames.length > 0 ? ` · ${r.documentNames.length} dokumen` : ""}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-1 shrink-0">
+                  <Button size="xs" variant="secondary" className="h-7" onClick={() => handleLoadReportIntoChat(r)}>
+                    Buka di chat
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    className="h-7 gap-1"
+                    onClick={() => openReportPdfWindow(r.title, r.documentNames, r.messages)}
+                  >
+                    <Printer className="h-3 w-3" />
+                    PDF
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    className="h-7 gap-1"
+                    disabled={exportingDocx}
+                    onClick={() => void downloadDocx(r.title, r.documentNames, r.messages, r.createdAt)}
+                  >
+                    <FileType className="h-3 w-3" />
+                    DOCX
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    className="h-7 px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+                    onClick={() => handleDeleteSavedReport(r.id)}
+                    aria-label="Hapus laporan"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Dialog>
+
       {/* Main Split View */}
-      <main className="flex-1 flex overflow-hidden h-[calc(100vh-4rem)]">
-        {/* ========== LEFT PANEL: PDF Preview ========== */}
-        <div className="w-1/2 border-r border-border bg-card/50 flex flex-col overflow-hidden">
-          <CvPreviewPane
-            doc={currentDoc}
-            url={previewUrl}
-            page={currentPage}
-            pages={totalPages}
-            onPrev={handlePrevPage}
-            onNext={handleNextPage}
-            onDownload={handleDownload}
-          />
+      <main className="flex-1 flex overflow-hidden h-[calc(100vh-4.25rem)]">
+        {/* LEFT: Kriteria JD */}
+        <div className="w-1/2 border-r border-border/80 flex flex-col overflow-hidden min-w-0 aw-panel-left">
+          <div className="px-4 py-2 border-b border-border/60 bg-card/30 shrink-0">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <Briefcase className="h-3.5 w-3.5 text-primary" />
+              Kriteria & Job Description
+            </p>
+          </div>
+          {criteriaReady && !jdCriteriaLoading ? (
+            <JdCriteriaPanel
+              selectedId={selectedCriteriaId}
+              onSelect={onSelectCriteria}
+              criteriaList={jdCriteriaList}
+              onRefresh={refreshJdCriteria}
+            />
+          ) : (
+            <div className="flex-1 p-6 space-y-3">
+              <div className="h-12 aw-skeleton rounded-lg bg-muted/30" />
+              <div className="h-32 aw-skeleton rounded-lg bg-muted/20" />
+              <div className="h-32 aw-skeleton rounded-lg bg-muted/20" />
+              <p className="text-xs text-center text-muted-foreground pt-4">Memuat kriteria...</p>
+            </div>
+          )}
         </div>
 
-        {/* ========== RIGHT PANEL: Tabs (Parse, Preview, Extract, Chat) ========== */}
-        <div className="w-1/2 bg-card/50 flex flex-col overflow-hidden">
-          <div className="flex-1 overflow-hidden p-6 flex flex-col min-h-0">
+        {/* RIGHT: Parse & Chat */}
+        <div className="w-1/2 aw-panel-right flex flex-col overflow-hidden">
+          <div className="px-4 py-2 border-b border-border/60 bg-card/20 shrink-0">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <MessageSquare className="h-3.5 w-3.5 text-primary" />
+              Analisis & Chat AI
+            </p>
+          </div>
+          <div className="flex-1 overflow-hidden p-4 md:p-6 flex flex-col min-h-0">
             <TabsContainer
               value={activeTab}
               onValueChange={(v) => setActiveTab(v as typeof activeTab)}
@@ -847,9 +1232,10 @@ export default function AssistantWorkspace() {
                           parsedBlocks.map((b) => {
                             const isOpen = blockOpen(b.id);
                             return (
-                              <div key={b.id} className="rounded-md border border-border/60 bg-card">
+                              <div key={b.id} className="aw-parse-block rounded-lg border border-border/60 bg-card/80 overflow-hidden">
                                 <button
-                                  className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium hover:bg-muted/50 transition-colors"
+                                  type="button"
+                                  className="w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium hover:bg-muted/40 transition-colors"
                                   onClick={() =>
                                     setOpenBlocks((prev) => ({
                                       ...prev,
@@ -876,8 +1262,10 @@ export default function AssistantWorkspace() {
                             );
                           })
                         ) : (
-                          <div className="text-xs text-muted-foreground text-center py-8">
-                            Belum ada hasil parsing. Upload dokumen untuk memulai.
+                          <div className="text-center py-12 px-4 rounded-xl border border-dashed border-border/80 bg-muted/10">
+                            <FileText className="h-10 w-10 mx-auto text-muted-foreground/40 mb-3" />
+                            <p className="text-sm text-muted-foreground">Belum ada hasil parsing.</p>
+                            <p className="text-xs text-muted-foreground mt-1">Upload CV di header untuk memulai.</p>
                           </div>
                         )}
                       </div>
@@ -891,57 +1279,151 @@ export default function AssistantWorkspace() {
                     <div className="h-full flex flex-col">
                       <Card className="flex-1 flex flex-col bg-transparent border-0 shadow-none">
                         <CardContent className="flex-1 overflow-auto space-y-4 pt-4 pb-4">
-                          <div className="flex items-center justify-between mb-2">
-                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                          <div className="flex flex-col gap-2 mb-2 sm:flex-row sm:items-start sm:justify-between">
+                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide shrink-0">
                               Riwayat Chat
                             </p>
-                            {msgs.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1.5 justify-start sm:justify-end">
+                              {msgs.length > 0 && (
+                                <>
+                                  <Button
+                                    variant="outline"
+                                    size="xs"
+                                    onClick={handleSaveReport}
+                                    className="text-xs h-7 px-2 gap-1"
+                                    title="Simpan snapshot percakapan untuk keputusan HR nanti"
+                                  >
+                                    <Save className="h-3 w-3 shrink-0" />
+                                    Simpan laporan
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="xs"
+                                    onClick={handleExportCurrentPdf}
+                                    className="text-xs h-7 px-2 gap-1"
+                                    title="Buka jendela cetak; pilih Simpan sebagai PDF"
+                                  >
+                                    <Printer className="h-3 w-3 shrink-0" />
+                                    PDF
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="xs"
+                                    onClick={handleExportCurrentDocx}
+                                    disabled={exportingDocx}
+                                    className="text-xs h-7 px-2 gap-1"
+                                    title="Unduh Microsoft Word (.docx)"
+                                  >
+                                    {exportingDocx ? (
+                                      <div className="h-3 w-3 border-2 border-muted-foreground border-t-transparent rounded-full animate-spin shrink-0" />
+                                    ) : (
+                                      <FileType className="h-3 w-3 shrink-0" />
+                                    )}
+                                    DOCX
+                                  </Button>
+                                </>
+                              )}
                               <Button
-                                variant="outline"
+                                variant="secondary"
                                 size="xs"
-                                onClick={handleClearChat}
-                                className="text-xs h-7 px-2 py-1 hover:bg-destructive/10 hover:text-destructive border-destructive/40"
+                                onClick={() => setReportsDialogOpen(true)}
+                                className="text-xs h-7 px-2 gap-1"
                               >
-                                Hapus riwayat
+                                Laporan ({savedReports.length})
                               </Button>
-                            )}
+                              {msgs.length > 0 && (
+                                <Button
+                                  variant="outline"
+                                  size="xs"
+                                  onClick={handleClearChat}
+                                  className="text-xs h-7 px-2 py-1 hover:bg-destructive/10 hover:text-destructive border-destructive/40"
+                                >
+                                  Hapus riwayat
+                                </Button>
+                              )}
+                            </div>
                           </div>
                           {msgs.length === 0 ? (
-                            <div className="text-sm text-muted-foreground text-center py-8">
-                              <Bot className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                              <p className="font-medium">Halo! Bagaimana saya dapat membantu Anda hari ini?</p>
-                              <p className="mt-4 text-xs opacity-75">• Upload CV di header untuk chat dengan konteks</p>
-                              <p className="text-xs opacity-75">• Atau langsung tanyakan apapun di sini</p>
+                            <div className="text-sm text-center py-6 aw-msg-enter">
+                              <div className="mx-auto h-14 w-14 rounded-2xl aw-bot-avatar flex items-center justify-center mb-4">
+                                <Bot className="h-7 w-7 text-[#6fb7ff]" />
+                              </div>
+                              <p className="font-semibold text-foreground">Halo! Siap bantu screening kandidat.</p>
+                              <p className="mt-2 text-xs text-muted-foreground max-w-sm mx-auto">
+                                Pilih kriteria JD di panel kiri, upload CV, lalu ajukan pertanyaan.
+                              </p>
+
+                              {selectedCriteria && (
+                                <div className="mt-5 p-3 aw-jd-badge rounded-xl text-xs text-left max-w-sm mx-auto">
+                                  <p className="font-medium text-foreground flex items-center gap-1.5">
+                                    <Briefcase className="h-3.5 w-3.5" />
+                                    Kriteria aktif
+                                  </p>
+                                  <p className="mt-1 font-medium">{selectedCriteria.title}</p>
+                                  <p className="text-muted-foreground">{selectedCriteria.department}</p>
+                                </div>
+                              )}
+
+                              <div className="mt-5 flex flex-wrap justify-center gap-2 max-w-md mx-auto">
+                                {CHAT_SUGGESTIONS.map((s) => (
+                                  <button
+                                    key={s}
+                                    type="button"
+                                    onClick={() => setInput(s)}
+                                    className="aw-suggest-chip text-left text-xs px-3 py-2 rounded-full border border-border/80 bg-muted/20 text-muted-foreground hover:text-foreground"
+                                  >
+                                    {s}
+                                  </button>
+                                ))}
+                              </div>
+
                               {documents.length > 0 && (
-                                <div className="mt-4 p-3 bg-muted/30 rounded-md text-xs">
-                                  <p className="font-medium mb-1">Dokumen yang tersedia:</p>
-                                  <ul className="list-disc list-inside space-y-1">
-                                    {documents.map((d) => (
-                                      <li key={d.id} className="truncate">
-                                        {d.name} {d.status === "Processed" ? "✓" : "⏳"}
+                                <div className="mt-5 p-3 rounded-xl border border-border/60 bg-muted/15 text-xs max-w-sm mx-auto text-left">
+                                  <p className="font-medium mb-2 flex items-center gap-1.5">
+                                    <FileText className="h-3.5 w-3.5" />
+                                    CV terupload ({documents.length})
+                                  </p>
+                                  <ul className="space-y-1">
+                                    {documents.slice(0, 4).map((d) => (
+                                      <li key={d.id} className="truncate text-muted-foreground flex items-center gap-1.5">
+                                        <span
+                                          className={cn(
+                                            "h-1.5 w-1.5 rounded-full shrink-0",
+                                            d.status === "Processed" ? "bg-emerald-500" : "bg-amber-500 animate-pulse"
+                                          )}
+                                        />
+                                        {d.name}
                                       </li>
                                     ))}
+                                    {documents.length > 4 && (
+                                      <li className="text-muted-foreground/70">+{documents.length - 4} lainnya</li>
+                                    )}
                                   </ul>
                                 </div>
                               )}
                             </div>
                           ) : (
-                            msgs.map((m) => (
+                            msgs.map((m, i) => (
                               <div
                                 key={m.id}
-                                className={`flex items-start gap-3 ${m.role === "user" ? "justify-end" : "justify-start"}`}
+                                className={cn(
+                                  "flex items-start gap-3 aw-msg-enter",
+                                  m.role === "user" ? "justify-end" : "justify-start"
+                                )}
+                                style={{ animationDelay: `${Math.min(i * 40, 200)}ms` }}
                               >
                                 {m.role === "assistant" && (
-                                  <div className="mt-1 rounded-full p-2 bg-muted/50">
-                                    <Bot className="h-4 w-4" />
+                                  <div className="mt-1 rounded-full p-2 aw-bot-avatar shrink-0">
+                                    <Bot className="h-4 w-4 text-[#6fb7ff]" />
                                   </div>
                                 )}
                                 <div
-                                  className={`max-w-[80%] min-w-0 rounded-2xl px-4 py-2 text-sm leading-relaxed ${
+                                  className={cn(
+                                    "max-w-[85%] min-w-0 rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
                                     m.role === "user"
-                                      ? "bg-primary text-primary-foreground rounded-br-sm"
-                                      : "bg-muted/40 text-foreground rounded-bl-sm"
-                                  }`}
+                                      ? "aw-user-bubble rounded-br-md font-medium"
+                                      : "aw-assistant-bubble rounded-bl-md text-foreground"
+                                  )}
                                 >
                                   {m.role === "assistant" ? (
                                     <ChatMarkdown content={m.text} />
@@ -950,7 +1432,7 @@ export default function AssistantWorkspace() {
                                   )}
                                 </div>
                                 {m.role === "user" && (
-                                  <div className="mt-1 rounded-full p-2 bg-muted/50">
+                                  <div className="mt-1 rounded-full p-2 bg-muted/40 border border-border/50 shrink-0">
                                     <User className="h-4 w-4" />
                                   </div>
                                 )}
@@ -958,21 +1440,34 @@ export default function AssistantWorkspace() {
                             ))
                           )}
                         </CardContent>
-                        <div className="p-4 border-t border-border flex items-end gap-3">
-                          <Textarea
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            placeholder="Tulis pertanyaan tentang CV..."
-                            className="min-h-[64px] resize-none flex-1"
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) sendChat();
-                            }}
-                          />
-                          <Button className="gap-2 btn-gradient" onClick={sendChat} disabled={isParsing}>
+                        <div className="p-3 md:p-4 border-t border-border/80 bg-card/20 flex flex-col sm:flex-row items-stretch sm:items-end gap-3">
+                          <div className="flex-1 rounded-xl border border-border bg-background/80 aw-input-wrap transition-all">
+                            <Textarea
+                              value={input}
+                              onChange={(e) => setInput(e.target.value)}
+                              placeholder={
+                                selectedCriteria
+                                  ? `Tanya tentang CV vs ${selectedCriteria.title}...`
+                                  : "Pilih kriteria JD di kiri, lalu tanya tentang CV..."
+                              }
+                              className="min-h-[64px] resize-none border-0 bg-transparent focus-visible:ring-0 shadow-none"
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) sendChat();
+                              }}
+                            />
+                            <p className="text-[10px] text-muted-foreground px-3 pb-2 hidden sm:block">
+                              Ctrl+Enter untuk kirim
+                            </p>
+                          </div>
+                          <Button
+                            className="gap-2 btn-figma border-0 admin-action-btn h-11 sm:h-auto sm:min-h-[64px] px-5 shrink-0"
+                            onClick={sendChat}
+                            disabled={isParsing}
+                          >
                             {isParsing ? (
                               <>
-                                <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                Processing...
+                                <div className="h-4 w-4 border-2 border-[#0b1533]/30 border-t-[#0b1533] rounded-full animate-spin" />
+                                Memproses...
                               </>
                             ) : (
                               <>

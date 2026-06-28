@@ -6,14 +6,29 @@ import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { AuthIllustration } from "@/components/auth-illustration";
+import { LoginRoleSelector } from "@/components/login-role-selector";
 import { useLanguage } from "@/components/language-provider";
+import {
+  getLoginIntent,
+  hasRole,
+  redirectPathForIntent,
+  roleAccessError,
+  setLoginIntent,
+  fetchServerRoles,
+  type LoginIntent,
+} from "@/lib/auth/roles";
 
 export default function LoginPage() {
   const supabase = createClient();
   const router = useRouter();
   const params = useSearchParams();
   const { t } = useLanguage();
-  const next = params.get("next") || "/";
+  const roleParam = params.get("role");
+  const initialRole: LoginIntent = roleParam === "admin" ? "admin" : "hr";
+  const defaultNext = initialRole === "admin" ? "/admin/jd-criteria" : "/assistant-workspace";
+  const next = params.get("next") || defaultNext;
+
+  const [loginRole, setLoginRole] = useState<LoginIntent>(initialRole);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -23,7 +38,7 @@ export default function LoginPage() {
   const [err, setErr] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Jika sudah login → redirect
+  // Jika sudah login → redirect sesuai role intent
   useEffect(() => {
     let mounted = true;
     
@@ -31,8 +46,14 @@ export default function LoginPage() {
       try {
         const { data } = await supabase.auth.getUser();
         if (mounted && data.user) {
-          console.log('User already logged in, redirecting to:', next);
-          router.replace(next);
+          const intent = getLoginIntent();
+          const roles = await fetchServerRoles();
+          const dest = hasRole(roles, intent)
+            ? redirectPathForIntent(intent)
+            : hasRole(roles, "admin")
+              ? "/admin/jd-criteria"
+              : "/assistant-workspace";
+          router.replace(dest);
           router.refresh();
         }
       } catch (error) {
@@ -46,6 +67,10 @@ export default function LoginPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    setLoginIntent(loginRole);
+  }, [loginRole]);
+
   // Kosongkan field saat mount untuk mengurangi autofill
   useEffect(() => {
     setEmail("");
@@ -55,8 +80,13 @@ export default function LoginPage() {
     const verified = params.get("verified");
     if (verified === "true") {
       setSuccess("Email berhasil diverifikasi! Silakan login dengan email dan password Anda.");
-      // Hilangkan notifikasi setelah 3 detik
       setTimeout(() => setSuccess(null), 3000);
+    }
+
+    const errParam = params.get("error");
+    if (errParam === "admin_required") {
+      setErr("Akun ini tidak memiliki akses Admin. Pilih login HR atau hubungi administrator.");
+      setLoginRole("admin");
     }
     
   }, [params]);
@@ -66,14 +96,21 @@ export default function LoginPage() {
     setErr(null);
     setLoading(true);
     try {
+      setLoginIntent(loginRole);
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-      router.replace(next);
+
+      const roles = await fetchServerRoles();
+      if (!hasRole(roles, loginRole)) {
+        await supabase.auth.signOut();
+        throw new Error(roleAccessError(loginRole));
+      }
+
+      router.replace(redirectPathForIntent(loginRole));
       router.refresh();
     } catch (e: any) {
       setErr(e.message || "Login gagal");
-      // Hilangkan notifikasi error setelah 3 detik
-      setTimeout(() => setErr(null), 3000);
+      setTimeout(() => setErr(null), 5000);
     } finally {
       setLoading(false);
     }
@@ -81,12 +118,13 @@ export default function LoginPage() {
 
   const loginWithGoogle = async () => {
     const supabase = createClient();
+    setLoginIntent(loginRole);
+    const dest = redirectPathForIntent(loginRole);
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+        redirectTo: `${location.origin}/auth/callback?next=${encodeURIComponent(dest)}`,
         queryParams: {
-          // opsional agar selalu dapat refresh_token
           access_type: "offline",
           prompt: "consent",
         },
@@ -102,7 +140,10 @@ export default function LoginPage() {
       {/* Kanan: form */}
       <div className="flex items-center justify-center p-8">
         <div className="w-full max-w-md">
-          <h1 className="text-3xl font-semibold text-center mb-8 text-white">{t("login.title")}</h1>
+          <h1 className="text-3xl font-semibold text-center mb-2 text-white">{t("login.title")}</h1>
+          <p className="text-center text-sm text-muted-foreground mb-6">PT Sosro Gunung Slamet</p>
+
+          <LoginRoleSelector value={loginRole} onChange={setLoginRole} />
 
           <form onSubmit={onSubmit} className="space-y-4" autoComplete="off">
             {/* autofill trap */}

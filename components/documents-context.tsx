@@ -389,7 +389,9 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
         if (parsedBlocks.length > 0 && currentUserId) {
           try {
             const { buildIndexForDocument } = await import("@/lib/ragLocal");
-            await buildIndexForDocument(row.id, parsedBlocks, currentUserId);
+            if (row.file) {
+              await buildIndexForDocument(row.id, row.file, undefined, currentUserId);
+            }
             console.log(`✅ Indexed ${parsedBlocks.length} blocks for: ${row.name}`);
           } catch (indexError: any) {
             console.error(`⚠️ Failed to index ${row.name}:`, indexError);

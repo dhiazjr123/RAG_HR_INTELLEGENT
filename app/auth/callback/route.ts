@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
+import { getUserRoles, hasRole } from "@/lib/auth/roles";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,7 +51,17 @@ export async function GET(req: Request) {
     );
   }
 
-  // Untuk semua OAuth (baik login maupun signup), langsung arahkan ke halaman tujuan
-  // Supabase akan otomatis membuat akun baru jika belum ada, atau login jika sudah ada
+  // Untuk OAuth: validasi akses admin jika tujuan dashboard admin
+  if (next.startsWith("/admin")) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const roles = getUserRoles(user);
+    if (!hasRole(roles, "admin")) {
+      await supabase.auth.signOut();
+      return NextResponse.redirect(new URL("/login?error=admin_required&role=admin", req.url));
+    }
+  }
+
   return NextResponse.redirect(new URL(next, req.url));
 }

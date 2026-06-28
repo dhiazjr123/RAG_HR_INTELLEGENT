@@ -1,5 +1,18 @@
 // app/api/rag/query/route.ts
 import { NextResponse } from "next/server";
+import {
+  applyPostProcessAnswer,
+  buildGreetingReply,
+  buildQueryUserAddon,
+  classifyHrQuery,
+  isFollowUpQuery,
+  isGreetingQuery,
+  narrowContextForFollowUp,
+  narrowContextForNamedComparison,
+  narrowContextForQuery,
+  type ChatHistoryTurn,
+  type HrQueryKind,
+} from "@/lib/recruiter-ranking";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,13 +24,15 @@ const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
 
 // Temperature rendah: jawaban lebih konservatif, mengurangi klaim pengalaman/skill yang tidak tertulis di CV
 const RECRUITER_TEMPERATURE = 0.14;
-// OpenRouter: output boleh lebih panjang
+// OpenRouter: output boleh lebih panjang; follow-up lebih pendek
 const OPENROUTER_MAX_TOKENS = 2200;
-// Groq free tier TPM ketat (~6000/menit): batasi output + konteks (lihat juga MAX_CONTEXT_CHARS)
-const GROQ_DEFAULT_MAX_TOKENS = 512;
-const GROQ_TPM_RETRY_MAX_TOKENS = 384;
+const OPENROUTER_FOLLOWUP_MAX_TOKENS = 720;
+// Groq on_demand TPM ~6000/menit: input+output harus jauh di bawah 6000 per request
+const GROQ_DEFAULT_MAX_TOKENS = 384;
+const GROQ_TPM_RETRY_MAX_TOKENS = 256;
+const GROQ_INITIAL_CONTEXT_CHARS = 4200;
 /** Potong konteks untuk ulang TPM / 413 Groq (karakter) */
-const GROQ_TPM_CONTEXT_CAPS = [8800, 6000, 4000, 2600] as const;
+const GROQ_TPM_CONTEXT_CAPS = [3200, 2200, 1400] as const;
 
 function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -49,8 +64,9 @@ function extractRequestedCandidateCount(query: string): number | null {
   }
   const patterns = [
     /(?:top|sebutkan|tampilkan|pilih|cukup|hanya|maks\.?|maksimal)\s*(?:saja\s*)?(\d+)\s*(?:kandidat|orang|pelamar|nama)/i,
-    /(\d+)\s*(?:kandidat|orang|pelamar|nama)(?:\s*(?:terbaik|cocok|sesuai|paling))?/i,
-    /(\d+)\s*(?:yang|paling)\s*(?:cocok|sesuai|baik|tepat|layak)/i,
+    // Perbaikan pola regex agar lebih sensitif menangkap digit angka tunggal
+    /(?:^|\s)(\d+)\s*(?:kandidat|orang|pelamar|nama)(?:\s*(?:terbaik|cocok|sesuai|paling))?/i,
+    /(?:^|\s)(\d+)\s*(?:yang|paling)\s*(?:cocok|sesuai|baik|tepat|layak)/i,
   ];
   for (const re of patterns) {
     const m = s.match(re);
@@ -80,21 +96,134 @@ function stitchRecruiterSysPrompt(recruiterPromptBody: string, ctx: string): str
   return recruiterPromptBody + ctx + "\n=== KONTEN KONTEKS SELESAI ===";
 }
 
+type ChatHistoryMessage = { role: "user" | "assistant"; content: string };
+
+const OPENROUTER_MAX_HISTORY_TURNS = 10;
+const GROQ_MAX_HISTORY_TURNS = 6;
+const OPENROUTER_HISTORY_ASSISTANT_MAX_CHARS = 3200;
+const GROQ_HISTORY_ASSISTANT_MAX_CHARS = 1200;
+
+const MULTI_TURN_SYS_NOTE =
+  "\n\nPERCAKAPAN BERKELANJUTAN: HR mengajukan pertanyaan lanjutan. " +
+  "Gunakan riwayat chat untuk memahami \"tadi\", \"pertama\", \"skor itu\". " +
+  "Jawab **singkat** (bullet poin saja, maks ~8 bullet / 100 kata). " +
+  "Jangan ulang screening penuh. Konteks CV/JD tetap sumber kebenaran; jangan mengarang.";
+
+function sanitizeChatHistory(raw: unknown): ChatHistoryMessage[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ChatHistoryMessage[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const role = (item as { role?: unknown }).role;
+    const content = (item as { content?: unknown }).content;
+    if (role !== "user" && role !== "assistant") continue;
+    if (typeof content !== "string") continue;
+    const trimmed = content.trim();
+    if (!trimmed) continue;
+    out.push({ role, content: trimmed.slice(0, 12000) });
+  }
+  return out;
+}
+
+function trimHistoryForProvider(
+  history: ChatHistoryMessage[],
+  opts: { maxTurns: number; assistantMaxChars: number }
+): ChatHistoryMessage[] {
+  const maxMessages = opts.maxTurns * 2;
+  const sliced = history.slice(-maxMessages);
+  return sliced.map((m) => {
+    if (m.role !== "assistant" || m.content.length <= opts.assistantMaxChars) return m;
+    return {
+      role: m.role,
+      content:
+        m.content.slice(0, opts.assistantMaxChars) +
+        "\n\n[... jawaban sebelumnya dipersingkat untuk batas riwayat chat ...]",
+    };
+  });
+}
+
+function buildLlmMessages(
+  sysPrompt: string,
+  history: ChatHistoryMessage[],
+  userMsg: string,
+  useGroq: boolean
+): Array<{ role: "system" | "user" | "assistant"; content: string }> {
+  const trimmedHistory = trimHistoryForProvider(history, {
+    maxTurns: useGroq ? GROQ_MAX_HISTORY_TURNS : OPENROUTER_MAX_HISTORY_TURNS,
+    assistantMaxChars: useGroq ? GROQ_HISTORY_ASSISTANT_MAX_CHARS : OPENROUTER_HISTORY_ASSISTANT_MAX_CHARS,
+  });
+  const sys =
+    trimmedHistory.length > 0 ? sysPrompt + MULTI_TURN_SYS_NOTE : sysPrompt;
+  return [
+    { role: "system", content: sys },
+    ...trimmedHistory,
+    { role: "user", content: userMsg },
+  ];
+}
+
+function truncateGroqContext(fullContext: string, maxChars: number): string {
+  if (fullContext.length <= maxChars) return fullContext;
+  return (
+    fullContext.slice(0, maxChars) +
+    "\n\n[... konteks dipersingkat untuk batas ukuran/TPM Groq; analisis bisa tidak lengkap ...]"
+  );
+}
+
 /**
- * Instruksi pendek khusus Groq (tier TPM ~6000). Prompt penuh membuat "Requested" ~4k+ token
- * hampir hanya dari sistem — potong konteks saja tidak cukup.
+ * Instruksi pendek khusus Groq (tier TPM ~6000). 
+ * Dioptimalkan agar Llama-3.1-8b mematuhi aturan kalkulasi skor kaku dan pemetaan per segmen file.
  */
 const recruiterPromptGroqBody =
-  `Anda AI recruiter. Jawab HANYA dari teks konteks (JD + CV). Markdown: ## ### **label** bullet "- ".
-Fakta: jangan tambah skill/pengalaman/proyek/teknologi. Per kandidat hanya dari segmen [[[CV_ONLY filename:...]]] ... [[[/CV_ONLY ...]]] yang **nama filenya sama** dengan kandidat di ###. **Dilarang** pindahkan kutipan Flutter/mobile/stack dari segmen file lain. Bukti = kutipan dari segmen itu saja ATAU: "CV tidak mencantumkan ...".
-Judul ###: salin **nama asli** dari teks CV + (CV: file). **Dilarang** tulis literal "Nama Lengkap" atau hanya nama file jika nama ada di CV. Tanpa nama: Nama tidak tersurat (CV: …).
-Jika HR minta angka (top 4, 3 kandidat): **maks N** blok ### peringkat = angka itu (default 3). Jangan lebih.
-Satu kandidat satu penilaian panjang (tidak dobel); ringkasan/penutup tidak boleh lawan ###. "Relevan JD" hanya jika kata/skill di CV juga di JD. Map 2–4 poin JD → ada/tidak bukti per CV.
-Skor JD 0–100 dari bukti di segmen file yang sama vs JD; tanpa bukti relevan → 0–35; **dilarang skor ≥70** jika segmen CV_ONLY file itu tidak berisi teknologi/pengalaman konkret yang selaras JD.
-Semua kandidat: ### per file daftar. Peringkat/top: ikuti angka di pertanyaan HR untuk maks blok peringkat; bila tidak ada angka, maks 3. Jangan nobatkan tanpa bukti.
-Nama persis seperti di CV (bukan huruf terpisah spasi).
+  `Anda AI recruiter senior. Jawab sesuai maksud pertanyaan HR (sapaan, profil satu kandidat, screening, atau perbandingan). Hanya gunakan teks konteks (JD + CV). Markdown: ## ### bullet "- ".
+Aturan:
+1. Segmen [[[CV_ONLY filename:...]]] ... [[[/CV_ONLY filename:...]]] — satu file = satu kandidat; jangan campur antar file.
+2. Jika HR minta **profil / data diri** satu orang: format ## Profil [Nama], tanpa skor JD, tanpa kandidat lain.
+3. Jika HR minta **cocok / terbaik / bandingkan**: boleh skor JD dan ## Rekomendasi utama.
+4. Kutipan hanya dari CV kandidat yang dimaksud.
 === KONTEN KONTEKS MULAI ===
 `;
+
+const recruiterPromptSingleCandidateBody =
+  `Anda asisten HR yang membantu membaca CV. HR menanyakan **profil atau data diri satu kandidat** (bukan screening semua pelamar).
+Jawab natural, ramah, dan terstruktur. Gunakan hanya teks CV pada segmen [[[CV_ONLY]]] yang difokuskan.
+Format: ## Profil [Nama asli dari CV] lalu bullet Pendidikan, Pengalaman, Keahlian, Kontak (hanya jika tertulis).
+**Jangan** beri skor kecocokan JD, **jangan** ulang kandidat yang sama dua kali, **jangan** sebut kandidat lain.
+=== KONTEN KONTEKS MULAI ===
+`;
+
+const recruiterPromptGeneralBody =
+  `Anda asisten AI recruiter yang fleksibel dan natural (seperti ChatGPT). Jawab **sesuai pertanyaan** HR:
+- Sapaan → balas singkat ramah.
+- Profil satu kandidat → ringkas dari CV-nya saja.
+- Screening / siapa cocok → struktur rekrutmen dengan bukti CV.
+Hanya gunakan fakta dari konteks; jangan mengarang. Markdown rapi bila perlu.
+=== KONTEN KONTEKS MULAI ===
+`;
+
+const recruiterPromptFollowUpBody =
+  `Anda asisten HR untuk **pertanyaan lanjutan** dalam sesi screening CV.
+Aturan wajib:
+1. Jawab **singkat**: maks ~6–8 bullet atau 100 kata.
+2. Format: ## judul singkat → bullet "- " saja; **tanpa** paragraf panjang.
+3. Gunakan riwayat chat + CV/JD; **jangan** ulang screening penuh atau semua kandidat.
+4. Hanya fakta tertulis di CV; jika tidak ada bukti: "Tidak tercantum di CV".
+5. Dilarang Ringkasan eksekutif panjang dan kalimat penutup berulang.
+=== KONTEN KONTEKS MULAI ===
+`;
+
+const recruiterPromptGroqFollowUpBody =
+  `AI recruiter — pertanyaan lanjutan. Jawab singkat: ## judul + bullet "- " (maks 8 bullet). Gunakan riwayat + CV/JD. Jangan ulang screening penuh. Hanya fakta CV.
+=== KONTEN KONTEKS MULAI ===
+`;
+
+function recruiterPromptForKind(kind: HrQueryKind, useGroq: boolean, followUp?: boolean): string {
+  if (followUp) return useGroq ? recruiterPromptGroqFollowUpBody : recruiterPromptFollowUpBody;
+  if (kind === "single_candidate") return recruiterPromptSingleCandidateBody;
+  if (kind === "greeting") return recruiterPromptGeneralBody;
+  if (kind === "general" && !useGroq) return recruiterPromptGeneralBody;
+  if (useGroq) return recruiterPromptGroqBody;
+  return ""; // pakai recruiterPromptBody default di POST
+}
 
 /** True untuk TPM, HTTP 413, atau pesan "request too large" dari Groq */
 function isGroqTpmOrOversized(status: number, message: string) {
@@ -167,7 +296,7 @@ function polishAssistantAnswer(answer: string): string {
 
 export async function POST(req: Request) {
   try {
-    const { query, context } = await req.json();
+    const { query, context, activeCriteria, history: rawHistory } = await req.json();
     if (!query) {
       return NextResponse.json({ error: "Query kosong." }, { status: 400 });
     }
@@ -175,108 +304,132 @@ export async function POST(req: Request) {
     const openrouterKey = process.env.OPENROUTER_API_KEY;
     const groqKey = process.env.GROQ_API_KEY;
 
+    const qStr = typeof query === "string" ? query.trim() : String(query);
+    const chatHistory = sanitizeChatHistory(rawHistory);
+    const followUp = chatHistory.length > 0 && isFollowUpQuery(qStr, true);
+    const postProcessOpts = {
+      followUp,
+      history: chatHistory as ChatHistoryTurn[],
+    };
+
+    if (isGreetingQuery(qStr) && chatHistory.length === 0) {
+      return NextResponse.json({ answer: buildGreetingReply(), sources: [] });
+    }
+
     // === batasi context (TPM Groq ~6000/menit — input besar mudah kena 429)
-    const MAX_CONTEXT_CHARS = 14200;
+    const MAX_CONTEXT_CHARS = 20000;
     let limitedContext = context || "(no context)";
     if (limitedContext.length > MAX_CONTEXT_CHARS) {
       limitedContext = limitedContext.substring(0, MAX_CONTEXT_CHARS) + "\n\n[... context truncated ...]";
     }
 
+    const queryKind = classifyHrQuery(qStr, limitedContext);
+    limitedContext = narrowContextForQuery(limitedContext, qStr, queryKind);
+    if (followUp) {
+      limitedContext = narrowContextForFollowUp(limitedContext, qStr, chatHistory as ChatHistoryTurn[]);
+    }
+    if (queryKind === "top_n") {
+      limitedContext = narrowContextForNamedComparison(limitedContext, qStr);
+    }
+
     // === AI Recruiter: screening CV, cocokkan JD, skor, alasan, pro/kontra
+    // Promp diperbarui agar memiliki kemampuan reasoning menyerupai asisten pintar (Gemini/ChatGPT)
     const recruiterPromptBody =
-      `Anda adalah AI recruiter senior. Tugas Anda: membaca CV dan Job Description (JD) dalam konteks, mencocokkan kandidat dengan kebutuhan role, memberi penilaian terstruktur, dan menjawab pertanyaan HR dengan nada profesional, natural, dan mudah diikuti — mirip asisten berkualitas tinggi (jelas, ringkas, tidak kaku).
+      `Anda adalah AI Recruiter Senior yang bertugas menjalankan proses screening berkas lamaran kerja secara cerdas, objektif, tepercaya, dan fleksibel seperti sistem LLM modern (Gemini/ChatGPT). Anda harus mengevaluasi isi Curriculum Vitae (CV) kandidat terhadap kriteria Job Description (JD) yang tersedia di dalam konteks RAG.
 
-SUMBER DATA (hanya ini yang valid):
-- JD / lowongan: blok bertanda [JOB DESCRIPTION - nama_file] atau nama file mengandung jd, job, lowongan, requirement.
-- CV: blok [CV - nama_file] atau nama file / segmen yang jelas merupakan CV.
-- Di awal konteks sering ada **=== DAFTAR SUMBER ===** berisi nomor urut semua file CV. Anggap itu daftar resmi kandidat untuk pertanyaan kolektif.
+SUMBER DATA (Hanya data di bawah ini yang valid):
+- Job Description (JD): Blok bertanda [JOB DESCRIPTION - nama_file] atau nama file serupa yang memuat kriteria lowongan kerja.
+- Curriculum Vitae (CV): Blok bertanda [CV - nama_file] atau segmen teks yang jelas diidentifikasi sebagai data pelamar kerja.
+- Gunakan penanda awal **=== DAFTAR SUMBER ===** untuk memvalidasi seluruh berkas CV yang masuk ke dalam sistem. Jangan melewatkan dokumen apa pun saat proses screening komparatif.
 
-KEADILAN & KELENGKAPAN (bedakan jenis pertanyaan):
-1. Pertanyaan **komparatif penuh** ("bandingkan semua pelamar", "nilai tiap CV", "screening semua", "sebutkan satu per satu", "semua kandidat", evaluasi JD untuk **seluruh** file): beri **satu blok ###** per file CV pada **DAFTAR SUMBER**, tanpa melompati nomor urut. Judul ### harus berisi **nama pelamar yang disalin dari teks CV** + (CV: file) — **dilarang** menulis placeholder teks **Nama Lengkap**; jika nama tidak ada di CV: **Nama tidak tersurat (CV: …)**.
-2. Pertanyaan **prioritas / terpilih / paling cocok / terbaik untuk role / top / siapa yang harus dilanjutkan** / HR menyebut **angka** (mis. top 4, sebutkan 3 kandidat, 3/4 kandidat): hemat panjang — di **## Rekomendasi utama** (atau setara) beri **paling banyak N** blok ### dengan bukti, di mana **N** = angka yang **eksplisit** diminta HR di pertanyaan; jika HR **tidak** menyebut angka, **N = 3**. **Dilarang** memberi lebih dari **N** kandidat berperingkat ber-detail (### lengkap) untuk pertanyaan bertipe ini; selebihnya hanya **## Kandidat lain (ringkas)** satu paragraf atau bullet pendek. Setiap ### singkat: bukti + skor + alasan. **Nama di judul ###** = string nama **nyata** dari teks CV file itu — **dilarang** literal **Nama Lengkap** sebagai pengganti nama. Lalu **## Kandidat lain (ringkas)**: nama orang dari CV + (CV: file) + satu kalimat status. **Jangan** menobatkan "paling cocok" tanpa bukti di CV.
-3. Jika pertanyaan **hanya** satu nama atau satu file CV, fokus ke kandidat itu.
-4. Jika teks CV dipersingkat di konteks, akui keterbatasan per kandidat; jangan mengisi dari CV lain.
+SISTEM PENILAIAN & SKOR KECOCOKAN (Wajib Objektif dan Tepercaya):
+1. Berikan penilaian menggunakan rentang skor bilangan bulat berharga 0-100 dengan format kaku: "**Skor kecocokan JD:** XX/100".
+2. Aturan Perhitungan Skor (evaluasi **holistik CV**, bukan sekadar keyword):
+   - Skor mencerminkan **cakupan persyaratan JD** + **kedalaman** pengalaman/proyek + **jumlah skill** relevan di CV.
+   - Kandidat dengan **lebih banyak** bukti pengalaman/skill sesuai JD harus **skor lebih tinggi** daripada yang hanya punya 1–2 kata kunci cocok.
+   - Prioritaskan bukti di bagian **Pengalaman/Proyek** di atas daftar skill saja.
+   - **Skor >= 70 (Tinggi/Lolos):** bukti riil pengalaman proyek/peran kerja/stack spesifik selaras JD — semakin banyak bukti, semakin tinggi skor.
+   - **Skor < 40 (Rendah/Tidak Lolos):** CV tipis atau tidak ada pengalaman/skill relevan JD.
+   - Ikuti urutan peringkat sinyal sistem (DAFTAR PERINGKAT) bila disertakan; jangan balik urutan tanpa alasan bukti CV.
 
-ATURAN FAKTA (wajib):
-1. HANYA gunakan yang benar-benar tertulis di konteks. Jangan menambah skill, pengalaman, gelar, industri, proyek, teknologi, atau angka yang tidak ada.
-2. **Bukti eksplisit di CV:** setiap bullet di bagian ini HARUS berupa (a) kutipan singkat atau parafrase ketat dari kalimat CV yang sama, ATAU (b) satu bullet persis: **"CV tidak mencantumkan pengalaman kerja, skill teknis, proyek, atau peran apa pun"** jika memang demikian. **DILARANG** menulis teknologi atau peran (mis. Flutter, Firebase, mobile, backend, UI/UX, fullstack) kecuali kata itu **secara harfiah** muncul di teks CV kandidat tersebut.
-3. CV tipis / tanpa bagian pengalaman atau skill: di **Bukti eksplisit** hanya gunakan bullet (b) di atas; di **Tidak tercantum** sebut requirement JD yang tidak punya bukti; **skor kecocokan JD** untuk role yang membutuhkan bukti teknis **tidak boleh tinggi** (gunakan rentang rendah, mis. 0–35), bukan skor menengah seperti 60.
-4. LINGKUP PER KANDIDAT: setiap pernyataan tentang seorang kandidat HANYA boleh didasarkan pada teks CV orang itu saja (blok [CV - nama_file] yang sesuai). DILARANG memindahkan pengalaman/skill dari CV kandidat lain, dari JD, atau dari pengetahuan umum, ke kandidat ini.
-5. **ANTI SILANG FILE (mutlak):** Di konteks sering ada penanda \"[[[CV_ONLY filename:NAMAFILE]]]\" hingga \"[[[/CV_ONLY filename:NAMAFILE]]]\". Untuk kandidat dengan file **NAMAFILE**, setiap kutipan di **Bukti eksplisit** harus berupa substring yang **hanya** diambil dari segmen CV_ONLY **dengan filename yang persis sama**. Jika kata seperti Flutter, Firebase, mobile, Android, iOS, atau "proyek" hanya muncul di dalam segmen CV_ONLY **file lain**, untuk kandidat ini Anda **dilarang** menulis kutipan itu — tulis: **CV tidak menyebutkan** skill/pengalaman tersebut. Untuk pertanyaan "paling cocok" / mobile dev: **wajib** memberi bukti pada ### yang judulnya memang file CV tempat teknologi itu tertulis, bukan pada file lain.
-6. BIDANG / ROLE / SKILL: jika CV tidak pernah menyebutkan suatu bidang atau teknologi, tulis **CV tidak menyebutkan** — jangan mengandaikan "pengalaman di bidang X".
-7. Jika suatu poin JD tidak bisa diverifikasi dari CV kandidat tersebut, nyatakan **tidak ada bukti di CV** untuk poin itu. Jangan mengisi celah agar jawaban terdengar lengkap.
-8. Jika konteks terpotong (ada teks "[... context truncated ...]"), akui bahwa penilaian bisa terbatas dan sebut apa yang masih bisa disimpulkan dari bagian yang ada.
-9. FORMAT KELUARAN: selalu gunakan Markdown yang rapi agar mudah dibaca (seperti ChatGPT):
-   - Judul bagian besar pakai ## (contoh: ## Ringkasan eksekutif), sub-bagian pakai ###.
-   - **Judul ### wajib memuat nama manusia nyata:** bentuk **### Budi Santoso (CV: CV.pdf)** — ganti **Budi Santoso** dengan nama **persis** yang Anda baca di teks CV segmen itu (bukan contoh fiktif jika CV berisi nama lain). **Dilarang keras** menulis frasa placeholder **Nama Lengkap**, **Nama Kandidat**, atau teks dalam kurung siku seperti placeholder template. **Dilarang** judul ### yang **hanya** nama file jika CV memuat nama orang. Jika nama tidak terbaca: **### Nama tidak tersurat (CV: namafile.pdf)**. Tulis nama **tanpa spasi antar huruf** (contoh salah: "Y o g a"; benar: "Yoga").
-   - Di bawah ###, baris pertama boleh mengulang **Nama (CV: file)** lalu bullet bukti/skor.
-   - Gunakan **teks** untuk label singkat (misalnya **Skor kecocokan JD:**, **Alasan skor:**, **Kelebihan:**, **Kekurangan / risiko:**, **Rekomendasi:**).
-   - Isi poin pakai bullet "- " (dash + spasi), satu ide per baris; hindari satu paragraf panjang tanpa jeda baris.
-   - Sisipkan baris kosong antar paragraf dan antar kandidat agar "turun ke bawah" jelas.
-   - **Dilarang menggandakan kandidat:** jangan menilai orang yang sama dua kali dengan narasi panjang hampir identik; jangan mengisi **Ringkasan** dengan daftar panjang yang mengulang ###.
-   - Tidak perlu HTML. Link sumber opsional dalam bentuk Markdown [teks](url) hanya jika relevan.
-10. Tulis nama orang dan identitas persis seperti di CV; hindari nama terpotong. **Dilarang** menyajikan kandidat hanya sebagai nama file tanpa menyebut nama orang jika nama itu ada di CV. **Dilarang** menulis frasa placeholder **Nama Lengkap** atau **Nama Kandidat** sebagai pengganti nama nyata.
-11. Sebelum mengklaim kandidat punya pengalaman di suatu bidang, cek ulang: apakah ada kalimat di CV yang secara eksplisit mendukung? Jika tidak, jawab negatif atau netral sesuai ketiadaan bukti.
-12. **ANTI-DUPLIKASI & KONSISTENSI:** Untuk **setiap** kandidat (nama + file CV), penilaian naratif panjang **hanya sekali** — biasanya di **satu blok ###** (komparatif) atau di **satu baris** ringkas (daftar). **Dilarang** mengulang orang yang sama di banyak paragraf dengan kesimpulan serupa (contoh: Yoga muncul dua kali dengan alasan hampir sama). **Ringkasan eksekutif** maksimal 2–4 kalimat: rangkum arah umum, **jangan** menyalin ulang isi panjang ### per orang. **Paragraf penutup** wajib **selaras** dengan **Alasan skor** / **Bukti** di ### untuk **nama yang sama** — **dilarang keras** menggabungkan dua nama dalam satu kalimat yang **mengontradiksi** ### salah satunya (mis. di atas Faisal "ada relevan" lalu di penutup "Faisal tidak punya relevan"). **Kata "relevan dengan JD/posisi":** hanya jika kutipan CV memuat skill/pengalaman/teknologi yang **secara harfiah** juga muncul di teks JD (atau istilah setara yang keduanya tertulis); jika CV punya skill lain yang **tidak** disebut JD, tulis **tidak ada bukti di CV untuk poin JD …** — bukan "relevan secara umum".
+ATURAN ANTI-HALUSINASI & DETEKSI DOKUMEN:
+1. **Penyaringan Berbasis Segmen (Anti Silang Dokumen):** Konteks dipisahkan oleh penanda \"[[[CV_ONLY filename:NAMAFILE]]]\" hingga \"[[[/CV_ONLY]]]\". Evaluasi terhadap kandidat pemilik NAMAFILE hanya boleh mengambil informasi dari dalam segmen dokumen tersebut. Anda dilarang keras memindahkan keahlian, riwayat proyek, atau sertifikasi milik kandidat lain ke profil kandidat ini.
+2. **Ekstraksi Nama Nyata:** Judul sub-bagian wajib menggunakan nama asli pelamar kerja yang diekstrak langsung dari isi teks CV, bukan menyalin nama file atau placeholder mentah. Format judul: "### [Nama Pelamar Nyata] (CV: nama_file.pdf)". Jika nama tidak ditemukan di dalam teks dokumen, tuliskan: "### Nama tidak tersurat (CV: nama_file.pdf)".
+3. Jika dokumen CV dipersingkat atau terpotong (ditandai dengan "[... context truncated ...]"), sebutkan keterbatasan analisis tersebut secara jujur pada bagian kekurangan/risiko, tanpa mengarang informasi tambahan.
 
-CARA BERPIKIR (tampilkan ringkas di jawaban, bukan monolog panjang):
-- Sebut dokumen mana yang dianggap JD vs tiap CV; jangan mencampur fakta antar CV.
-- Untuk setiap ### kandidat, **buka hanya** segmen konteks \"[[[CV_ONLY filename:NAMA]]]\" hingga \"[[[/CV_ONLY filename:NAMA]]]\" dengan **NAMA sama** dengan file/judul kandidat; jangan melihat segmen CV_ONLY file lain saat menulis bukti untuk kandidat ini.
-- **Sebelum menulis judul ###:** salin **nama pelamar** huruf demi huruf dari teks CV (header/identitas) ke judul; **jangan** mengganti dengan kata **Nama Lengkap**. Jika tidak ada nama di teks, **Nama tidak tersurat (CV: …)** — bukan nama file saja.
-- Untuk tiap kandidat, hanya kutip atau rangkum ketat dari CV-nya; untuk setiap butir JD penting: tulis **ada bukti** atau **tidak disebutkan di CV** (bukan ditebak). Jangan pernah mengarang proyek atau stack teknologi.
-- Untuk penilaian ke JD: ambil **2–4 poin konkret** dari teks JD (skill, tool, domain, pengalaman). Untuk **tiap kandidat**, sebut bukti kutipan dari CV-nya **per poin** (**ada** / **tidak ada bukti**) lalu gap; **dilarang** melompat ke kata "relevan" tanpa pemetaan ini; akhiri dengan ringkasan gap vs JD hanya dari fakta tersebut.
-- Inferensi di luar teks CV dilarang kecuali satu baris dengan label persis: *Interpretasi wajar (bukan fakta di CV):* — dan hanya jika tidak mengubah fakta (mis. implikasi umum dari gelar yang memang tertulis).
-
-SKOR KECOCOKAN (hanya jika ada JD + CV yang dinilai):
-- Gunakan skor bilangan bulat 0–100: "Skor kecocokan JD: XX/100".
-- Skor mencerminkan seberapa banyak requirement penting JD yang didukung bukti eksplisit di CV kandidat tersebut saja, bukan kualitas umum subjektif. Jangan menaikkan skor dengan mengandaikan pengalaman atau skill yang tidak tertulis di CV orang itu.
-- **Skor ≥ 70** hanya jika di segmen CV (penanda CV_ONLY **filename yang sama** dengan judul ###) ada **minimal satu** kalimat konkret yang mendukung requirement utama JD. Jika segmen itu tidak memuat teknologi/pengalaman/proyek yang relevan dengan JD, skor **wajib di bawah 70** (biasanya 0–40).
-- Jika CV tidak mencantumkan pengalaman kerja atau skill relevan dengan JD sama sekali, skor kecocokan JD harus **rendah (mis. 0–35)**; **dilarang** memberi skor menengah/tinggi hanya agar jawaban terlihat seimbang.
-- Jika CV tidak memuat cukup informasi untuk skor adil, beri skor rendah atau jelaskan "Skor bersyarat" dan sebutkan data yang kurang.
-- Jika tidak ada JD di konteks, JANGAN memberi skor kecocokan JD; bisa beri ringkasan profil dan risiko berdasarkan CV saja.
-
-FORMAT JAWABAN MARKDOWN (sesuaikan dengan jenis pertanyaan — lihat KEADILAN poin 1 vs 2):
+FORMAT JAWABAN MARKDOWN (Struktur Rapi, Bersih, dan Komparatif):
 
 ## Ringkasan eksekutif
-(2–4 kalimat saja: arah umum vs JD; **jangan** mengulang penilaian panjang per nama yang sudah ada di ###; jangan menduplikasi kandidat)
+(Berikan kesimpulan umum hasil screening sebanyak 2-4 kalimat yang ringkas mengenai arah kecocokan para pelamar terhadap kriteria posisi kerja tanpa menduplikasi isi ulasan detail di bawah).
 
-## Penilaian (pilih struktur sesuai pertanyaan — lihat KEADILAN poin 1 vs 2)
-- **Komparatif penuh:** ulangi blok ### **sekali per file CV** pada DAFTAR SUMBER.
-- **Paling cocok / top / prioritas / HR sebut angka N:** gunakan **## Rekomendasi utama** dengan **tepat paling banyak N** blok heading-3 berbukti (N dari angka di pertanyaan HR bila ada; bila tidak ada angka, N=3), lalu **## Kandidat lain (ringkas)** — **dilarang** lebih dari N blok penilaian ber-detail untuk bagian peringkat.
-- **Judul per kandidat (wajib):** satu baris heading Markdown level-3 yang dimulai dengan **nama pelamar yang Anda salin dari teks CV** (bukan frasa literal \"Nama Lengkap\" atau \"Nama Kandidat\"), lalu **(CV: namafile.pdf)**. Contoh bentuk benar: heading berisi **Rizky Hidayat (CV: dummy_cv_5.pdf)** — ganti Rizky Hidayat dengan nama yang benar-benar ada di segmen CV itu.
+## Penilaian Kriteria Kandidat
+(Gunakan aturan di bawah ini untuk menyusun ulasan kandidat):
+- Jika pertanyaan bersifat komparatif umum ("nilai seluruh berkas", "screening semua pelamar"), buat satu blok heading level 3 (###) untuk setiap berkas CV yang ada di daftar sumber tanpa terlewat.
+- Jika HR memberikan kriteria jumlah atau batas tertentu (seperti "top 3", "pilih 4 pelamar terbaik"), berikan analisis terperinci (### lengkap) pada bagian **## Rekomendasi Utama** sebanyak maksimal N orang (N = angka yang diminta, default = 3 jika tidak disebutkan), lalu sisa pelamar lainnya dimasukkan secara singkat pada bagian **## Kandidat Lain (Ringkas)**.
 
-### [Salin nama nyata dari teks CV — dilarang tulis literal Nama Lengkap] (CV: namafile.pdf)
-- **Skor kecocokan JD:** XX/100 (atau jelaskan jika tidak applicable)
+Setiap ulasan blok heading-3 (###) wajib mengikuti format detail berikut:
+### [Salin Nama Nyata dari Teks CV] (CV: nama_file.pdf)
+- **Skor kecocokan JD:** XX/100
 - **Bukti eksplisit di CV (hanya dari CV orang ini):**
-  - Hanya kutipan/parafrase ketat yang **tepat-tepat** berasal dari segmen \"[[[CV_ONLY filename:...]]]\" dengan **filename sama** dengan judul ### ini. ATAU satu bullet: **"CV tidak mencantumkan pengalaman kerja, skill teknis, proyek, atau peran apa pun."** Jangan menulis stack (Flutter, Firebase, mobile, backend, UI/UX, dll.) kecuali teks itu **ada di segmen CV_ONLY file ini**.
+  - Tuliskan kutipan/parafrase akurat mengenai teknologi, tools, atau pengalaman kerja konkret yang tertulis di CV pelamar. Jika dokumen kosong atau tidak relevan, tulis secara tegas: "CV tidak mencantumkan pengalaman kerja, skill teknis, proyek, atau peran apa pun yang diminta".
 - **Tidak tercantum / tidak ada bukti di CV:**
-  - (requirement JD atau pertanyaan yang tidak didukung teks CV ini)
+  - Sebutkan kriteria atau kualifikasi penting pada dokumen JD yang tidak mampu dibuktikan keberadaannya di dalam teks CV pelamar ini.
 - **Alasan skor:**
-  - (hanya merujuk bullet di **Bukti eksplisit**; jika bukti kosong, skor rendah dan jangan mengarang pengalaman)
+  - Jelaskan dasar logis penentuan nilai skor di atas dengan menghubungkan ketersediaan bukti konkret terhadap kesenjangan (*gap*) pemenuhan kriteria lowongan.
 - **Kelebihan:**
-  - (hanya dari yang tertulis; jika tidak ada, tulis: tidak ada kelebihan tersurat dibanding JD)
+  - Poin plus dan potensi kompetensi pelamar yang tertulis di teks dokumen.
 - **Kekurangan / risiko:**
-  - (termasuk gap terhadap JD)
-- **Rekomendasi:** (selaras dengan bukti; jika tidak ada bukti relevan, rekomendasikan tidak lanjut atau perlu wawancara klarifikasi, bukan "cocok")
+  - Hambatan kualifikasi atau kesenjangan kompetensi teknis pelamar terhadap posisi terkait.
+- **Rekomendasi:**
+  - Pernyataan tindakan lanjut yang selaras dengan hasil bukti (Contoh: Layak dilanjutkan ke interview teknis / Perlu klarifikasi portofolio / Tidak direkomendasikan).
 
-Jika pertanyaan hanya faktual tentang JD atau satu CV, jawab lebih ringkas tetapi tetap pakai ## / ### dan bullet agar tetap terstruktur.
+Akhiri seluruh respons dengan satu paragraf kalimat penutup yang objektif, natural, dan konsisten terhadap isi ulasan evaluasi di atas tanpa memuat informasi yang saling bertentangan.
 
-Akhiri dengan **satu** paragraf penutup singkat yang **konsisten** dengan ### di atas (tanpa kontradiksi); jika data kurang, sebutkan secara eksplisit.
+PENTING — SESUAIKAN GAYA JAWABAN DENGAN PERTANYAAN:
+- Sapaan / obrolan ringan → balas natural (tidak perlu format screening).
+- Profil atau data diri **satu** kandidat → ## Profil [Nama]; bullet pendidikan, pengalaman, skill, kontak; **tanpa** skor JD dan **tanpa** kandidat lain.
+- Screening / perbandingan / siapa cocok → format komparatif dan skor seperti di atas.
 
 === KONTEN KONTEKS MULAI ===
 `;
 
-    const sysPrompt = stitchRecruiterSysPrompt(recruiterPromptBody, limitedContext);
+    const promptBodyOverride = recruiterPromptForKind(queryKind, false, followUp);
+    const sysPrompt = stitchRecruiterSysPrompt(
+      promptBodyOverride || recruiterPromptBody,
+      limitedContext
+    );
 
-    const qStr = typeof query === "string" ? query.trim() : String(query);
     const askedN = typeof query === "string" ? extractRequestedCandidateCount(query) : null;
+    const criteriaMeta =
+      activeCriteria &&
+      typeof activeCriteria === "object" &&
+      typeof activeCriteria.title === "string"
+        ? {
+            id: String(activeCriteria.id ?? ""),
+            title: String(activeCriteria.title),
+            department: String(activeCriteria.department ?? ""),
+            fullText: String(activeCriteria.fullText ?? activeCriteria.title),
+          }
+        : null;
+
     const userMsg =
       typeof query === "string"
         ? `Pertanyaan atau instruksi HR:\n${qStr}` +
           (askedN != null
             ? `\n\n[Instruksi sistem — wajib dipatuhi: HR meminta paling banyak **${askedN}** kandidat terpilih/terbaik. Di bagian peringkat (## Rekomendasi utama atau setara) beri **paling banyak ${askedN}** blok ### berisi bukti; **dilarang** lebih dari ${askedN}. Selebihnya ringkas saja di ## Kandidat lain.]`
-            : "")
+            : "") +
+          (criteriaMeta
+            ? `\n\n[Kriteria lowongan dipilih HR di panel: **${criteriaMeta.title}** (${criteriaMeta.department}). ` +
+              `Jika HR bertanya "posisi ini", "di posisi tersebut", atau "paling cocok" tanpa menyebut role, evaluasi terhadap kriteria **${criteriaMeta.title}**.]`
+            : "") +
+          buildQueryUserAddon(limitedContext, qStr, askedN, criteriaMeta, {
+            followUp,
+            history: chatHistory as ChatHistoryTurn[],
+          })
         : qStr;
+
+    const openRouterMaxTokens = followUp ? OPENROUTER_FOLLOWUP_MAX_TOKENS : OPENROUTER_MAX_TOKENS;
+    const groqFollowUpMaxTokens = 280;
 
     // Try OpenRouter dengan timeout
     if (openrouterKey) {
@@ -294,12 +447,9 @@ Akhiri dengan **satu** paragraf penutup singkat yang **konsisten** dengan ### di
           },
           body: JSON.stringify({
             model: MODEL,
-            messages: [
-              { role: "system", content: sysPrompt },
-              { role: "user", content: userMsg },
-            ],
+            messages: buildLlmMessages(sysPrompt, chatHistory, userMsg, false),
             temperature: RECRUITER_TEMPERATURE,
-            max_tokens: OPENROUTER_MAX_TOKENS,
+            max_tokens: openRouterMaxTokens,
             top_p: 0.9,
           }),
           signal: controller.signal,
@@ -318,10 +468,19 @@ Akhiri dengan **satu** paragraf penutup singkat yang **konsisten** dengan ### di
           }
           
           answer = polishAssistantAnswer(answer);
+          answer = applyPostProcessAnswer(
+            answer,
+            limitedContext,
+            qStr,
+            askedN,
+            criteriaMeta,
+            postProcessOpts
+          );
           return NextResponse.json({ answer, sources: [] });
         }
-      } catch (e) {
-        console.log("OpenRouter timeout/error, fallback ke Groq:", e.message);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.log("OpenRouter timeout/error, fallback ke Groq:", msg);
         // lanjut ke Groq
       }
     }
@@ -330,8 +489,8 @@ Akhiri dengan **satu** paragraf penutup singkat yang **konsisten** dengan ### di
     if (groqKey) {
       console.log("Menggunakan Groq API...");
       try {
-        let groqCtx = limitedContext;
-        let groqMaxTokens = GROQ_DEFAULT_MAX_TOKENS;
+        let groqCtx = truncateGroqContext(limitedContext, GROQ_INITIAL_CONTEXT_CHARS);
+        let groqMaxTokens = followUp ? groqFollowUpMaxTokens : GROQ_DEFAULT_MAX_TOKENS;
         let tpmGroqWaitRound = 0;
         let groqTokenFloorPass = 0;
         let tpmGroqCapIdx = 0;
@@ -347,10 +506,15 @@ Akhiri dengan **satu** paragraf penutup singkat yang **konsisten** dengan ### di
             },
             body: JSON.stringify({
               model: GROQ_MODEL,
-              messages: [
-                { role: "system", content: stitchRecruiterSysPrompt(recruiterPromptGroqBody, groqCtx) },
-                { role: "user", content: userMsg },
-              ],
+              messages: buildLlmMessages(
+                stitchRecruiterSysPrompt(
+                  recruiterPromptForKind(queryKind, true, followUp) || recruiterPromptGroqBody,
+                  groqCtx
+                ),
+                chatHistory,
+                userMsg,
+                true
+              ),
               temperature: RECRUITER_TEMPERATURE,
               max_tokens: groqMaxTokens,
             }),
@@ -368,6 +532,14 @@ Akhiri dengan **satu** paragraf penutup singkat yang **konsisten** dengan ### di
             }
 
             answer = polishAssistantAnswer(answer);
+            answer = applyPostProcessAnswer(
+              answer,
+              limitedContext,
+              qStr,
+              askedN,
+              criteriaMeta,
+              postProcessOpts
+            );
             return NextResponse.json({ answer, sources: [] });
           }
 
@@ -378,16 +550,23 @@ Akhiri dengan **satu** paragraf penutup singkat yang **konsisten** dengan ### di
           );
 
           if (isGroqTpmOrOversized(resp.status, errorMsg)) {
-            // 413 / "request too large" → utamakan memperkecil INPUT (konteks), bukan hanya max_tokens
+            const isTpmWindow =
+              resp.status === 429 &&
+              (errorMsg.toLowerCase().includes("tokens per minute") ||
+                errorMsg.toLowerCase().includes("(tpm)"));
+
             if (tpmGroqCapIdx < GROQ_TPM_CONTEXT_CAPS.length) {
               const cap = GROQ_TPM_CONTEXT_CAPS[tpmGroqCapIdx++];
-              groqCtx =
-                limitedContext.slice(0, cap) +
-                "\n\n[... konteks dipersingkat untuk batas ukuran/TPM Groq; analisis bisa tidak lengkap ...]";
+              groqCtx = truncateGroqContext(limitedContext, cap);
               groqMaxTokens = Math.min(groqMaxTokens, GROQ_TPM_RETRY_MAX_TOKENS);
               console.warn(
                 `[Groq] ukuran permintaan besar (status ${resp.status}); potong konteks ~${cap} chars, max_tokens=${groqMaxTokens}`
               );
+              if (isTpmWindow) {
+                const waitMs = parseGroqRetryAfterMs(errorMsg) ?? 1500;
+                console.warn(`[Groq] TPM; waiting ${waitMs}ms before retry after trim`);
+                await sleep(waitMs);
+              }
               continue;
             }
 
@@ -423,7 +602,7 @@ Akhiri dengan **satu** paragraf penutup singkat yang **konsisten** dengan ### di
 
           if (isGroqRpmError(resp.status, errorMsg) && rpmWaitsDone < 2) {
             rpmWaitsDone++;
-            const waitMs = 2600;
+            const waitMs = parseGroqRetryAfterMs(errorMsg) ?? 2600;
             console.warn(`[Groq] rate limit; waiting ${waitMs}ms then retry (${rpmWaitsDone}/2)`);
             await sleep(waitMs);
             continue;
@@ -449,18 +628,18 @@ Akhiri dengan **satu** paragraf penutup singkat yang **konsisten** dengan ### di
           },
           { status: 200 }
         );
-      } catch (e: any) {
-        return NextResponse.json({ error: `Groq error: ${e.message}` }, { status: 500 });
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : String(e);
+        return NextResponse.json({ error: `Groq error: ${message}` }, { status: 500 });
       }
     }
 
-    // Jika tidak ada API key, kembalikan jawaban default
-    return NextResponse.json({ 
-      answer: "Tidak ditemukan di dokumen.", 
-      sources: [] 
+    return NextResponse.json({
+      answer: "Tidak ditemukan di dokumen.",
+      sources: [],
     });
-
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Gagal memproses query." }, { status: 500 });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ error: message || "Gagal memproses query." }, { status: 500 });
   }
 }

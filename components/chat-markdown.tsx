@@ -11,12 +11,14 @@ const components: Components = {
     </h3>
   ),
   h2: ({ children }) => (
-    <h4 className="text-sm font-semibold mt-3 first:mt-0 mb-1.5 text-foreground">
+    <h4 className="text-sm font-semibold mt-4 first:mt-0 mb-2 pt-2 border-t border-border/50 text-foreground">
       {children}
     </h4>
   ),
   h3: ({ children }) => (
-    <h5 className="text-sm font-semibold mt-2 mb-1 text-foreground">{children}</h5>
+    <h5 className="text-sm font-semibold mt-3 mb-1.5 text-foreground rounded-md bg-muted/35 border border-border/50 px-2.5 py-1.5">
+      {children}
+    </h5>
   ),
   p: ({ children }) => <p className="mb-2 last:mb-0 text-foreground/95">{children}</p>,
   ul: ({ children }) => (

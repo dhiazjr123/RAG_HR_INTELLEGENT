@@ -7,7 +7,6 @@ import * as os from "os";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// OCR gambar/PDF bisa memakan waktu 1–2 menit (unduh model Tesseract, dll.)
 export const maxDuration = 120;
 
 type ParsedBlock = { id: string; label: string; content: string };
@@ -21,7 +20,6 @@ function asBlocksFromLines(lines: string[]): ParsedBlock[] {
   return lines.map((l, i) => ({ id: String(i + 1), label: `Row ${i + 1}`, content: l.trim() }));
 }
 
-// Headings untuk CV dan Job Description (JD) / lowongan
 const CV_JD_HEADING_REGEX = /^(work experience|experience|pengalaman|projects?|project|portfolio|portofolio|skills?|keahlian|technical skills|soft skills|education|pendidikan|certifications?|sertifikasi|achievements?|prestasi|languages?|bahasa|summary|ringkasan|about|tentang|profile|profil|job description|deskripsi pekerjaan|job title|posisi|lowongan|requirements?|persyaratan|qualifications?|kualifikasi|kriteria|responsibilities?|tanggung jawab|must have|nice to have|benefits?|benefit|tunjangan|compensation|gaji)\b/i;
 
 function buildCvBlocks(text: string): ParsedBlock[] {
@@ -58,7 +56,80 @@ function blocksFromTextPreferCv(text: string): ParsedBlock[] {
   return asBlocksFromLines(lines);
 }
 
-// PDF Plumber extraction (preferred for better table extraction)
+// EKSEKUSI TESSERACT LEWAT NODE.JS MURNI (FORMAT .mjs BYPASS)
+async function runTesseractOcr(imagePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    try {
+      // Wajib menggunakan .mjs agar Node menganggapnya sebagai modul ES murni
+      const scriptPath = path.join(os.tmpdir(), `ocr-worker-${Date.now()}-${Math.random().toString(36).substring(7)}.mjs`);
+      const cacheDir = os.tmpdir().replace(/\\/g, "/");
+      const safeImgPath = imagePath.replace(/\\/g, "/");
+      
+      // Script ini berjalan aman, mendukung CJS/ESM
+      const scriptContent = `
+import { createRequire } from 'module';
+const require = createRequire(process.cwd() + '/');
+
+async function run() {
+  try {
+    const Tesseract = require('tesseract.js');
+    const options = { cachePath: '${cacheDir}', logger: () => {} };
+    let result;
+    try {
+      result = await Tesseract.recognize('${safeImgPath}', 'ind+eng', options);
+    } catch {
+      result = await Tesseract.recognize('${safeImgPath}', 'eng', options);
+    }
+
+    console.log("===OCR_START===");
+    console.log(result.data.text);
+    console.log("===OCR_END===");
+    process.exit(0);
+  } catch (e) {
+    console.error("OCR_FATAL_ERROR:", e.message);
+    process.exit(1);
+  }
+}
+
+run();
+`;
+      fs.writeFileSync(scriptPath, scriptContent);
+
+      const proc = spawn("node", [scriptPath], { cwd: process.cwd() });
+      let out = "";
+      let err = "";
+
+      proc.stdout.on("data", (data) => { out += data.toString(); });
+      proc.stderr.on("data", (data) => { err += data.toString(); });
+
+      proc.on("close", (code) => {
+        try { fs.unlinkSync(scriptPath); } catch {}
+        
+        if (code !== 0) {
+          reject(new Error(err || "Proses OCR Tesseract gagal."));
+        } else {
+          // Ambil hanya teks hasil OCR
+          const match = out.match(/===OCR_START===\n([\s\S]*?)\n===OCR_END===/);
+          if (match) {
+            resolve(match[1].trim());
+          } else {
+            resolve(out.trim());
+          }
+        }
+      });
+
+      setTimeout(() => {
+        proc.kill();
+        try { fs.unlinkSync(scriptPath); } catch {}
+        reject(new Error("Proses pemindaian gambar terlalu lama (Timeout)."));
+      }, 60000);
+    } catch (e: any) {
+      reject(new Error("Gagal menyiapkan lingkungan OCR: " + e.message));
+    }
+  });
+}
+
+// PDF Plumber extraction
 async function parseWithPdfplumber(buffer: Buffer): Promise<string> {
   return new Promise((resolve, reject) => {
     const tempFile = path.join(os.tmpdir(), `pdf-${Date.now()}-${Math.random().toString(36).substring(7)}.pdf`);
@@ -68,7 +139,6 @@ async function parseWithPdfplumber(buffer: Buffer): Promise<string> {
     const normalizedPath = tempFile.replace(/\\/g, "/");
     const normalizedOut = outTxt.replace(/\\/g, "/");
 
-    // Tulis hasil ke file UTF-8 (hindari error Windows: charmap tidak bisa encode emoji di stdout)
     const pythonScript = `
 import pdfplumber
 import sys
@@ -111,15 +181,9 @@ except Exception as e:
           text = fs.readFileSync(outTxt, "utf8");
           fs.unlinkSync(outTxt);
         }
-      } catch {
-        // ignore
-      }
+      } catch {}
       if (fs.existsSync(tempFile)) {
-        try {
-          fs.unlinkSync(tempFile);
-        } catch {
-          // ignore
-        }
+        try { fs.unlinkSync(tempFile); } catch {}
       }
 
       if (code !== 0) {
@@ -129,27 +193,22 @@ except Exception as e:
       }
     });
 
-    // Timeout after 30 seconds
     setTimeout(() => {
       pythonProcess.kill();
       if (fs.existsSync(tempFile)) {
-        try {
-          fs.unlinkSync(tempFile);
-        } catch (e) {
-          // Ignore cleanup errors
-        }
+        try { fs.unlinkSync(tempFile); } catch {}
       }
       reject(new Error("Pdfplumber parsing timeout"));
     }, 30000);
   });
 }
 
-// Fallback: muat pdf-parse lewat require (CJS) dari root proyek — stabil di Next.js vs dynamic import
+// Fallback PDF Parse dengan aman
 async function pdfParseFallback(buf: Buffer): Promise<string> {
   try {
     const { createRequire } = await import("node:module");
-    const require = createRequire(path.join(process.cwd(), "package.json"));
-    const pdfParseMod = require("pdf-parse");
+    const requireCJS = createRequire(path.join(process.cwd(), "package.json"));
+    const pdfParseMod = requireCJS("pdf-parse");
     const run = typeof pdfParseMod === "function" ? pdfParseMod : pdfParseMod.default;
     const data = await run(buf);
     let text = String(data?.text || "").trim();
@@ -160,7 +219,6 @@ async function pdfParseFallback(buf: Buffer): Promise<string> {
   }
 }
 
-// Function untuk improve deteksi tabel pajak
 function improveTableDetection(text: string): string {
   const lines = text.split(/\r?\n/);
   const improvedLines: string[] = [];
@@ -168,29 +226,23 @@ function improveTableDetection(text: string): string {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     
-    // Deteksi header tabel pajak
     if (line.includes('PKB') || line.includes('BBNKB') || line.includes('SWDKLLJ')) {
-      // Cari baris dengan angka (kemungkinan data tabel)
       let j = i;
-      while (j < lines.length && j < i + 20) { // Maksimal 20 baris ke bawah
+      while (j < lines.length && j < i + 20) {
         const nextLine = lines[j].trim();
         
-        // Deteksi baris dengan nama kasir dan angka
         if (nextLine.match(/^[A-Z\s]+[0-9,\.]+/)) {
           improvedLines.push(nextLine);
         }
-        // Deteksi baris dengan format: Nama | Angka | Angka | Angka
         else if (nextLine.includes('|') && nextLine.match(/[0-9,\.]/)) {
           improvedLines.push(nextLine);
         }
-        // Deteksi baris dengan angka saja (subtotal)
         else if (nextLine.match(/^[0-9,\.\s]+$/)) {
           improvedLines.push(nextLine);
         }
-        
         j++;
       }
-      i = j - 1; // Skip ke baris terakhir yang diproses
+      i = j - 1; 
     } else {
       improvedLines.push(line);
     }
@@ -221,7 +273,6 @@ export async function POST(req: Request) {
     let parsedBlocks: ParsedBlock[] = [];
     let usedDocling = false;
 
-    // ======= 0) Coba Docling lokal — SKIP untuk gambar (gunakan OCR saja, hindari binary jadi teks) =======
     if (!isImage) {
       try {
         const mod: any = await import("@/lib/doclingExtractor");
@@ -233,15 +284,11 @@ export async function POST(req: Request) {
             usedDocling = true;
           }
         }
-      } catch {
-        // diam-diam lanjut ke opsi lain
-      }
+      } catch {}
     }
 
-    // ======= 1) Coba Docling service jika tersedia =======
     const DOC_SERVICE_URL = process.env.DOC_SERVICE_URL || "http://localhost:8008/extract";
     try {
-      // hanya untuk PDF / DOCX
       if (!parsedBlocks.length && (ext === "pdf" || mime.includes("pdf") || ext === "docx")) {
         const fd = new FormData();
         fd.append("file", new Blob([buf], { type: mime || "application/pdf" }), name);
@@ -254,23 +301,18 @@ export async function POST(req: Request) {
             parsedBlocks = asBlocksFromLines(rowLines);
             usedDocling = true;
           } else if (j?.raw_text) {
-            // fallback ke raw markdown dari docling
             parsedBlocks = blocksFromTextPreferCv(String(j.raw_text));
             usedDocling = true;
           }
         }
       }
-    } catch {
-      // diam-diam fallback
-    }
+    } catch {}
 
-    // ======= 2) Coba PDF Plumber untuk PDF (lebih baik untuk tabel) =======
     if (!parsedBlocks.length && (ext === "pdf" || mime.includes("pdf"))) {
       try {
         const text = await parseWithPdfplumber(buf);
         parsedBlocks = blocksFromTextPreferCv(text);
       } catch (pdfplumberError: any) {
-        console.warn("Pdfplumber failed, falling back to pdf-parse:", pdfplumberError.message);
         try {
           const text = await pdfParseFallback(buf);
           const lines = text.split(/\r?\n/).filter(l => /^\d+\.\s+/.test(l.trim()));
@@ -278,74 +320,59 @@ export async function POST(req: Request) {
             ? asBlocksFromLines(lines)
             : blocksFromTextPreferCv(text);
         } catch (fallbackError: any) {
-          console.error("All PDF parsing methods failed:", fallbackError.message);
-          throw new Error("Gagal memproses PDF. Pastikan Python dan pdfplumber terinstall.");
+          throw new Error("Gagal memproses PDF.");
         }
       }
+      
       const pdfTextLen = parsedBlocks.reduce((s, b) => s + (b.content || "").length, 0);
       if (pdfTextLen < 80) {
         try {
           const { fromBuffer } = await import("pdf2pic");
           const convert = fromBuffer(buf, { format: "png", width: 1200, height: 1600 });
-          const result = await convert(1, { responseType: "buffer" });
-          const imgBuf = (result as { buffer?: Buffer })?.buffer;
-          if (imgBuf && imgBuf.length > 0) {
-            const imgPath = path.resolve(os.tmpdir(), `pdf-page1-${Date.now()}.png`);
-            fs.writeFileSync(imgPath, imgBuf);
+          const ocrParts: string[] = [];
+          
+          for (const pageNum of [1, 2, 3]) {
             try {
-              const Tesseract = await import("tesseract.js");
-              const { createWorker } = Tesseract;
-              let worker;
+              const result = await convert(pageNum, { responseType: "buffer" });
+              const imgBuf = (result as { buffer?: Buffer })?.buffer;
+              if (!imgBuf?.length) break;
+              const imgPath = path.resolve(os.tmpdir(), `pdf-p${pageNum}-${Date.now()}.png`);
+              fs.writeFileSync(imgPath, imgBuf);
+              
               try {
-                worker = await createWorker("ind+eng", 1, { logger: () => {} });
-              } catch {
-                worker = await createWorker("eng", 1, { logger: () => {} });
-              }
-              try {
-                const { data } = await worker.recognize(imgPath);
-                const ocrText = (data?.text || "").trim();
-                if (ocrText.length > 50) parsedBlocks = blocksFromTextPreferCv(ocrText);
+                const pageText = await runTesseractOcr(imgPath);
+                if (pageText.length > 20) {
+                  ocrParts.push(pageText);
+                }
               } finally {
-                await worker.terminate();
+                if (fs.existsSync(imgPath)) try { fs.unlinkSync(imgPath); } catch {}
               }
-            } finally {
-              if (fs.existsSync(imgPath)) try { fs.unlinkSync(imgPath); } catch {}
+            } catch {
+              break;
             }
           }
-        } catch (pdfOcrErr: any) {
-          console.warn("PDF-to-image OCR fallback failed (install GraphicsMagick for image-only PDFs):", pdfOcrErr?.message);
-        }
+          const ocrText = ocrParts.join("\n\n").trim();
+          if (ocrText.length > 50) parsedBlocks = blocksFromTextPreferCv(ocrText);
+        } catch (pdfOcrErr: any) {}
       }
     }
-    // ======= 3) Gambar (JPG, PNG, dll) — OCR dengan Tesseract.js (createWorker API) =======
+    
+    // ======= GAMBAR (JPG, PNG, dll) — OCR Bypass Next.js =======
     if (!parsedBlocks.length && isImage) {
       const tempFile = path.resolve(os.tmpdir(), `img-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`);
       try {
         fs.writeFileSync(tempFile, buf);
-        const Tesseract = await import("tesseract.js");
-        const { createWorker } = Tesseract;
-        let worker;
-        try {
-          worker = await createWorker("ind+eng", 1, { logger: () => {} });
-        } catch (langError: any) {
-          worker = await createWorker("eng", 1, { logger: () => {} });
-        }
-        try {
-          const { data } = await worker.recognize(tempFile);
-          const text = (data?.text || "").trim();
-          if (text) parsedBlocks = blocksFromTextPreferCv(text);
-        } finally {
-          await worker.terminate();
+        const text = await runTesseractOcr(tempFile);
+        if (text) {
+          parsedBlocks = blocksFromTextPreferCv(text);
         }
       } catch (ocrError: any) {
-        console.warn("OCR (Tesseract) failed for image:", ocrError?.message);
-        throw new Error("Gagal mengekstrak teks dari gambar. Pastikan file gambar jelas dan berisi teks.");
+        throw new Error(`Gagal membaca teks dari gambar: ${ocrError?.message}`);
       } finally {
         if (fs.existsSync(tempFile)) try { fs.unlinkSync(tempFile); } catch {}
       }
     }
 
-    // ======= 4) Fallback untuk non-PDF/non-image atau jika semua gagal =======
     if (!parsedBlocks.length && !isImage) {
       try {
         const text = await pdfParseFallback(buf);
@@ -354,13 +381,12 @@ export async function POST(req: Request) {
           ? asBlocksFromLines(lines)
           : blocksFromTextPreferCv(text);
       } catch (error: any) {
-        console.error("Fallback parsing failed:", error.message);
-        throw new Error("Gagal memproses file.");
+        throw new Error("Gagal mengekstrak teks dokumen.");
       }
     }
 
     if (!parsedBlocks.length && isImage) {
-      throw new Error("Tidak ada teks yang terdeteksi dari gambar. Coba gambar dengan resolusi lebih tinggi atau kontras lebih jelas.");
+      throw new Error("Tidak ada teks yang terdeteksi dari gambar. Pastikan resolusi cukup jelas.");
     }
 
     return NextResponse.json({ parsedBlocks, usedDocling });
