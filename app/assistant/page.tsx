@@ -9,10 +9,9 @@ import AssistantWorkspace from "@/components/assistant-workspace"; // ⬅️ def
 export default function AssistantPage() {
   return (
     <DocumentsProvider>
-      <div className="min-h-screen bg-figma-auth">
+      <div className="min-h-screen bg-white flex flex-col">
         <Header />
-        <div className="flex">
-          <Sidebar />
+        <div className="flex-1 w-full">
           <AssistantWorkspace />
         </div>
       </div>

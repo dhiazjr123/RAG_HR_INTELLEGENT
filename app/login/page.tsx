@@ -1,7 +1,8 @@
 // app/login/page.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -18,14 +19,14 @@ import {
   type LoginIntent,
 } from "@/lib/auth/roles";
 
-export default function LoginPage() {
+function LoginContent() {
   const supabase = createClient();
   const router = useRouter();
   const params = useSearchParams();
   const { t } = useLanguage();
   const roleParam = params.get("role");
-  const initialRole: LoginIntent = roleParam === "admin" ? "admin" : "hr";
-  const defaultNext = initialRole === "admin" ? "/admin/jd-criteria" : "/assistant-workspace";
+  const initialRole: LoginIntent = roleParam === "admin" ? "admin" : roleParam === "pelamar" ? "pelamar" : "hr";
+  const defaultNext = initialRole === "admin" ? "/admin/jd-criteria" : initialRole === "pelamar" ? "/pelamar/dashboard" : "/";
   const next = params.get("next") || defaultNext;
 
   const [loginRole, setLoginRole] = useState<LoginIntent>(initialRole);
@@ -52,7 +53,7 @@ export default function LoginPage() {
             ? redirectPathForIntent(intent)
             : hasRole(roles, "admin")
               ? "/admin/jd-criteria"
-              : "/assistant-workspace";
+              : "/";
           router.replace(dest);
           router.refresh();
         }
@@ -134,13 +135,11 @@ export default function LoginPage() {
   
 
   return (
-    <main className="min-h-screen grid grid-cols-1 md:grid-cols-2 bg-figma-auth text-white">
-      <AuthIllustration />
-
-      {/* Kanan: form */}
+    <main className="min-h-screen grid grid-cols-1 md:grid-cols-2 bg-figma-auth text-slate-800">
+      {/* Kiri: form */}
       <div className="flex items-center justify-center p-8">
         <div className="w-full max-w-md">
-          <h1 className="text-3xl font-semibold text-center mb-2 text-white">{t("login.title")}</h1>
+          <h1 className="text-3xl font-extrabold text-center mb-2 text-slate-800 tracking-tight">{t("login.title")}</h1>
           <p className="text-center text-sm text-muted-foreground mb-6">PT Sosro Gunung Slamet</p>
 
           <LoginRoleSelector value={loginRole} onChange={setLoginRole} />
@@ -180,10 +179,15 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowPw((s) => !s)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 focus:outline-none cursor-pointer"
+                  style={{ zIndex: 50 }}
                   aria-label="toggle password"
                 >
-                  {showPw ? "🙈" : "👁️"}
+                  {showPw ? (
+                    <EyeOff className="h-4 w-4" style={{ color: '#000000', stroke: '#000000' }} />
+                  ) : (
+                    <Eye className="h-4 w-4" style={{ color: '#000000', stroke: '#000000' }} />
+                  )}
                 </button>
               </div>
 
@@ -243,10 +247,10 @@ export default function LoginPage() {
             <button
               type="button"
               onClick={loginWithGoogle}
-              className="w-full rounded-md border border-border bg-background py-2 text-sm transition-all duration-300 ease-in-out hover:bg-muted/40 hover:scale-105 hover:shadow-md active:scale-95"
+              className="w-full rounded-md btn-figma py-2 text-sm font-medium transition-all duration-300 ease-in-out hover:scale-105 hover:shadow-lg active:scale-95"
             >
-              <span className="inline-flex items-center gap-2">
-                <Image src="/g.png" alt="Google" width={18} height={18} className="transition-transform duration-300 hover:rotate-12" />
+              <span className="inline-flex items-center gap-2 text-white">
+                <Image src="/g.png" alt="Google" width={18} height={18} className="transition-transform duration-300 hover:rotate-12 brightness-0" />
                 {t("login.google")}
               </span>
             </button>
@@ -260,6 +264,16 @@ export default function LoginPage() {
           </p>
         </div>
       </div>
+
+      <AuthIllustration />
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-figma-auth flex items-center justify-center text-white text-sm">Loading...</div>}>
+      <LoginContent />
+    </Suspense>
   );
 }

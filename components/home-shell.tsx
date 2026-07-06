@@ -3,16 +3,14 @@
 
 import { DocumentsProvider } from "@/components/documents-context";
 import { Header } from "@/components/header";
-import Sidebar from "@/components/sidebar";
 import { MainContent } from "@/components/main-content";
 
 export default function HomeShell() {
   return (
     <DocumentsProvider>
-      <div className="min-h-screen bg-figma-auth">
+      <div className="min-h-screen bg-white flex flex-col">
         <Header />
-        <div className="flex">
-          <Sidebar />
+        <div className="flex-1 w-full">
           <MainContent />
         </div>
       </div>

@@ -180,6 +180,7 @@ Aturan:
 2. Jika HR minta **profil / data diri** satu orang: format ## Profil [Nama], tanpa skor JD, tanpa kandidat lain.
 3. Jika HR minta **cocok / terbaik / bandingkan**: boleh skor JD dan ## Rekomendasi utama.
 4. Kutipan hanya dari CV kandidat yang dimaksud.
+5. Di bagian bukti eksplisit, jangan kutip baris judul posisi lama / nama instansi (misal: "Modern Packaging Technician - PT Maju"), melainkan keahlian atau tugas riil.
 === KONTEN KONTEKS MULAI ===
 `;
 
@@ -192,11 +193,11 @@ Format: ## Profil [Nama asli dari CV] lalu bullet Pendidikan, Pengalaman, Keahli
 `;
 
 const recruiterPromptGeneralBody =
-  `Anda asisten AI recruiter yang fleksibel dan natural (seperti ChatGPT). Jawab **sesuai pertanyaan** HR:
-- Sapaan → balas singkat ramah.
-- Profil satu kandidat → ringkas dari CV-nya saja.
-- Screening / siapa cocok → struktur rekrutmen dengan bukti CV.
-Hanya gunakan fakta dari konteks; jangan mengarang. Markdown rapi bila perlu.
+  `Anda adalah asisten AI recruiter yang cerdas, objektif, dan tepercaya. Jawab pertanyaan HR secara langsung, natural, dan akurat berdasarkan FAKTA yang tertulis di dalam dokumen CV pelamar pada konteks RAG.
+Aturan Penting:
+1. Hanya gunakan informasi yang benar-benar tertulis di dalam CV. Dilarang keras mengarang (hallucination) informasi, pengalaman, proyek, pendidikan, atau sertifikasi yang tidak ada di CV.
+2. Jika informasi yang ditanyakan tidak tercantum di dalam CV, katakan dengan jujur dan sopan bahwa informasi tersebut tidak ditemukan di dalam dokumen.
+3. Jawab sesuai maksud pertanyaan HR. Jangan menyajikan skor kecocokan JD, ulasan kelebihan/kekurangan, atau format screening massal kecuali HR secara eksplisit memintanya di dalam pertanyaan.
 === KONTEN KONTEKS MULAI ===
 `;
 
@@ -208,11 +209,12 @@ Aturan wajib:
 3. Gunakan riwayat chat + CV/JD; **jangan** ulang screening penuh atau semua kandidat.
 4. Hanya fakta tertulis di CV; jika tidak ada bukti: "Tidak tercantum di CV".
 5. Dilarang Ringkasan eksekutif panjang dan kalimat penutup berulang.
+6. Jangan sertakan judul pekerjaan lama / nama instansi sebagai bukti eksplisit; fokus pada kompetensi/tugas riil.
 === KONTEN KONTEKS MULAI ===
 `;
 
 const recruiterPromptGroqFollowUpBody =
-  `AI recruiter — pertanyaan lanjutan. Jawab singkat: ## judul + bullet "- " (maks 8 bullet). Gunakan riwayat + CV/JD. Jangan ulang screening penuh. Hanya fakta CV.
+  `AI recruiter — pertanyaan lanjutan. Jawab singkat: ## judul + bullet "- " (maks 8 bullet). Gunakan riwayat + CV/JD. Jangan ulang screening penuh. Hanya fakta CV. JANGAN kutip judul jabatan lama / nama instansi sebagai bukti.
 === KONTEN KONTEKS MULAI ===
 `;
 
@@ -220,7 +222,8 @@ function recruiterPromptForKind(kind: HrQueryKind, useGroq: boolean, followUp?: 
   if (followUp) return useGroq ? recruiterPromptGroqFollowUpBody : recruiterPromptFollowUpBody;
   if (kind === "single_candidate") return recruiterPromptSingleCandidateBody;
   if (kind === "greeting") return recruiterPromptGeneralBody;
-  if (kind === "general" && !useGroq) return recruiterPromptGeneralBody;
+  if (kind === "general") return recruiterPromptGeneralBody;
+  if (kind === "list_names") return recruiterPromptGeneralBody;
   if (useGroq) return recruiterPromptGroqBody;
   return ""; // pakai recruiterPromptBody default di POST
 }
@@ -258,10 +261,10 @@ function polishAssistantAnswer(answer: string): string {
 
   // Hindari blok kosong berlebihan (tetap biarkan ganda untuk paragraf Markdown)
   answer = answer.replace(/\n{4,}/g, "\n\n\n");
-  
+
   // Jangan hapus kalimat terakhir yang tidak lengkap - biarkan seperti adanya
   // karena mungkin memang terpotong dari API
-  
+
   // Perbaiki nama yang terpotong (contoh: "SAPUTR" -> "SAPUTRA", "NUGROH" -> "NUGROHO")
   // Tapi hanya jika memang terlihat seperti nama yang terpotong
   const nameFixes: Record<string, string> = {
@@ -270,11 +273,11 @@ function polishAssistantAnswer(answer: string): string {
     'SAPUTRA': 'SAPUTRA', // Pastikan sudah benar
     'NUGROHO': 'NUGROHO', // Pastikan sudah benar
   };
-  
+
   // Perbaiki nama yang terpotong di berbagai konteks
   for (const [wrong, correct] of Object.entries(nameFixes)) {
     if (wrong === correct) continue; // Skip jika sudah benar
-    
+
     // Perbaiki di berbagai posisi: di akhir kalimat, sebelum angka, sebelum titik, dll
     const patterns = [
       new RegExp(`\\b${wrong}\\s*$`, 'gmi'), // Di akhir baris
@@ -282,15 +285,15 @@ function polishAssistantAnswer(answer: string): string {
       new RegExp(`\\b${wrong}\\s*\\.`, 'gmi'), // Sebelum titik
       new RegExp(`\\b${wrong}\\s*\\n`, 'gmi'), // Sebelum newline
     ];
-    
+
     patterns.forEach(pattern => {
       answer = answer.replace(pattern, (match) => match.replace(wrong, correct));
     });
   }
-  
+
   // Trim whitespace
   answer = answer.trim();
-  
+
   return answer;
 }
 
@@ -317,7 +320,7 @@ export async function POST(req: Request) {
     }
 
     // === batasi context (TPM Groq ~6000/menit — input besar mudah kena 429)
-    const MAX_CONTEXT_CHARS = 20000;
+    const MAX_CONTEXT_CHARS = 48000;
     let limitedContext = context || "(no context)";
     if (limitedContext.length > MAX_CONTEXT_CHARS) {
       limitedContext = limitedContext.substring(0, MAX_CONTEXT_CHARS) + "\n\n[... context truncated ...]";
@@ -371,7 +374,11 @@ Setiap ulasan blok heading-3 (###) wajib mengikuti format detail berikut:
 ### [Salin Nama Nyata dari Teks CV] (CV: nama_file.pdf)
 - **Skor kecocokan JD:** XX/100
 - **Bukti eksplisit di CV (hanya dari CV orang ini):**
-  - Tuliskan kutipan/parafrase akurat mengenai teknologi, tools, atau pengalaman kerja konkret yang tertulis di CV pelamar. Jika dokumen kosong atau tidak relevan, tulis secara tegas: "CV tidak mencantumkan pengalaman kerja, skill teknis, proyek, atau peran apa pun yang diminta".
+  - Tuliskan maksimal 2 bullet point saja yang komplit dan kohesif:
+    - Bullet 1: **Pengalaman:** Gabungkan rincian tugas/tanggung jawab/pengalaman kerja riil yang paling relevan (misal: "Terbiasa mengoperasikan mesin pengemasan modern, menjaga kebersihan, serta melakukan pencatatan hasil produksi").
+    - Bullet 2: **Skill:** Gabungkan daftar keahlian khusus/sertifikasi yang relevan (misal: "Personal Hygiene, HSSE, dan Kerja Sama Tim").
+  - **PENTING/Wajib:** JANGAN memecah pengalaman menjadi banyak baris/bullet pendek yang tidak lengkap. JANGAN sertakan baris judul posisi/pekerjaan atau nama perusahaan (misal: "Modern Packaging Technician – PT Maju Beverage Indonesia") sebagai bukti, karena itu hanya bagian dari nama jabatan lama, bukan bukti kompetensi/kriteria riil.
+  - Jika dokumen kosong atau tidak relevan, tulis secara tegas: "CV tidak mencantumkan pengalaman kerja, skill teknis, proyek, atau peran apa pun yang diminta".
 - **Tidak tercantum / tidak ada bukti di CV:**
   - Sebutkan kriteria atau kualifikasi penting pada dokumen JD yang tidak mampu dibuktikan keberadaannya di dalam teks CV pelamar ini.
 - **Alasan skor:**
@@ -402,30 +409,30 @@ PENTING — SESUAIKAN GAYA JAWABAN DENGAN PERTANYAAN:
     const askedN = typeof query === "string" ? extractRequestedCandidateCount(query) : null;
     const criteriaMeta =
       activeCriteria &&
-      typeof activeCriteria === "object" &&
-      typeof activeCriteria.title === "string"
+        typeof activeCriteria === "object" &&
+        typeof activeCriteria.title === "string"
         ? {
-            id: String(activeCriteria.id ?? ""),
-            title: String(activeCriteria.title),
-            department: String(activeCriteria.department ?? ""),
-            fullText: String(activeCriteria.fullText ?? activeCriteria.title),
-          }
+          id: String(activeCriteria.id ?? ""),
+          title: String(activeCriteria.title),
+          department: String(activeCriteria.department ?? ""),
+          fullText: String(activeCriteria.fullText ?? activeCriteria.title),
+        }
         : null;
 
     const userMsg =
       typeof query === "string"
         ? `Pertanyaan atau instruksi HR:\n${qStr}` +
-          (askedN != null
-            ? `\n\n[Instruksi sistem — wajib dipatuhi: HR meminta paling banyak **${askedN}** kandidat terpilih/terbaik. Di bagian peringkat (## Rekomendasi utama atau setara) beri **paling banyak ${askedN}** blok ### berisi bukti; **dilarang** lebih dari ${askedN}. Selebihnya ringkas saja di ## Kandidat lain.]`
-            : "") +
-          (criteriaMeta
-            ? `\n\n[Kriteria lowongan dipilih HR di panel: **${criteriaMeta.title}** (${criteriaMeta.department}). ` +
-              `Jika HR bertanya "posisi ini", "di posisi tersebut", atau "paling cocok" tanpa menyebut role, evaluasi terhadap kriteria **${criteriaMeta.title}**.]`
-            : "") +
-          buildQueryUserAddon(limitedContext, qStr, askedN, criteriaMeta, {
-            followUp,
-            history: chatHistory as ChatHistoryTurn[],
-          })
+        (askedN != null
+          ? `\n\n[Instruksi sistem — wajib dipatuhi: HR meminta paling banyak **${askedN}** kandidat terpilih/terbaik. Di bagian peringkat (## Rekomendasi utama atau setara) beri **paling banyak ${askedN}** blok ### berisi bukti; **dilarang** lebih dari ${askedN}. Selebihnya ringkas saja di ## Kandidat lain.]`
+          : "") +
+        (criteriaMeta
+          ? `\n\n[Kriteria lowongan dipilih HR di panel: **${criteriaMeta.title}** (${criteriaMeta.department}). ` +
+          `Jika HR bertanya "posisi ini", "di posisi tersebut", atau "paling cocok" tanpa menyebut role, evaluasi terhadap kriteria **${criteriaMeta.title}**.]`
+          : "") +
+        buildQueryUserAddon(limitedContext, qStr, askedN, criteriaMeta, {
+          followUp,
+          history: chatHistory as ChatHistoryTurn[],
+        })
         : qStr;
 
     const openRouterMaxTokens = followUp ? OPENROUTER_FOLLOWUP_MAX_TOKENS : OPENROUTER_MAX_TOKENS;
@@ -461,12 +468,12 @@ PENTING — SESUAIKAN GAYA JAWABAN DENGAN PERTANYAAN:
           const choice = data?.choices?.[0];
           let answer = choice?.message?.content || "Tidak ditemukan di dokumen.";
           const finishReason = choice?.finish_reason;
-          
+
           // Jika jawaban terpotong karena length, tambahkan catatan
           if (finishReason === "length") {
             answer += "\n\n[Catatan: Jawaban mungkin terpotong karena batasan panjang. Silakan ajukan pertanyaan yang lebih spesifik untuk mendapatkan informasi lengkap.]";
           }
-          
+
           answer = polishAssistantAnswer(answer);
           answer = applyPostProcessAnswer(
             answer,

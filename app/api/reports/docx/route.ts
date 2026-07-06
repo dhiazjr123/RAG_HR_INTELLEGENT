@@ -103,7 +103,7 @@ export async function POST(req: Request) {
   const buf = await bufPromise;
 
   const fname = sanitizeFilename(title) + ".docx";
-  return new NextResponse(buf, {
+  return new NextResponse(new Uint8Array(buf), {
     status: 200,
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

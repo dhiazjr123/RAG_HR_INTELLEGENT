@@ -12,25 +12,25 @@ export default function AssistantWorkspacePage() {
   const router = useRouter();
   return (
     <DocumentsProvider>
-      <div className="min-h-screen bg-figma-auth">
-        {/* Bar aksi */}
-        <div className="w-full px-4 md:px-6 pt-3">
-          <Button 
-            variant="default" 
-            size="sm" 
-            onClick={() => router.push("/")} 
-            className={cn(
-              "gap-2 btn-gradient transition-all duration-300 ease-in-out",
-              "hover:scale-105 hover:shadow-lg active:scale-95 hover:-translate-x-1 group"
-            )}
-          >
-            <ArrowLeft className="h-4 w-4 transition-transform duration-300 group-hover:-translate-x-1" /> 
-            Back
-          </Button>
-        </div>
+      <div className="h-screen flex flex-col bg-white overflow-hidden">
         {/* Full-screen workspace tanpa sidebar */}
-        <div className="w-full">
-          <AssistantWorkspace />
+        <div className="flex-1 w-full overflow-hidden flex flex-col min-h-0">
+          <AssistantWorkspace 
+            backButton={
+              <Button 
+                variant="default" 
+                size="sm" 
+                onClick={() => router.push("/")} 
+                className={cn(
+                  "gap-1 btn-gradient transition-all duration-300 ease-in-out h-8 px-3 mr-1",
+                  "hover:scale-105 hover:shadow-lg active:scale-95 hover:-translate-x-1 group"
+                )}
+              >
+                <ArrowLeft className="h-3.5 w-3.5 transition-transform duration-300 group-hover:-translate-x-1" /> 
+                <span className="hidden sm:inline">Back</span>
+              </Button>
+            }
+          />
         </div>
       </div>
     </DocumentsProvider>

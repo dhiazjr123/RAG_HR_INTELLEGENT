@@ -16,11 +16,18 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  console.log("DEBUG /api/auth/me - user metadata:", {
+    email: user.email,
+    app_metadata: user.app_metadata,
+    user_metadata: user.user_metadata,
+  });
+
   const roles = getUserRoles(user);
   return NextResponse.json({
     email: user.email,
     roles,
     isAdmin: roles.includes("admin"),
     isHr: roles.includes("hr"),
+    isPelamar: roles.includes("pelamar"),
   });
 }

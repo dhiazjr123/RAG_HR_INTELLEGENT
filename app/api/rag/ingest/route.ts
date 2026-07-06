@@ -315,10 +315,7 @@ export async function POST(req: Request) {
       } catch (pdfplumberError: any) {
         try {
           const text = await pdfParseFallback(buf);
-          const lines = text.split(/\r?\n/).filter(l => /^\d+\.\s+/.test(l.trim()));
-          parsedBlocks = lines.length
-            ? asBlocksFromLines(lines)
-            : blocksFromTextPreferCv(text);
+          parsedBlocks = blocksFromTextPreferCv(text);
         } catch (fallbackError: any) {
           throw new Error("Gagal memproses PDF.");
         }

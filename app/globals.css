@@ -10,126 +10,122 @@
 
 /* ----- LIGHT ----- */
 :root {
-  /* Teks gelap di latar terang → kontras AA */
-  --background: oklch(0.985 0.01 255);
-  --foreground: oklch(0.17 0.02 255);
+  /* ── Background: gradient putih-teal sangat subtle ── */
+  --background: oklch(0.975 0.012 168);
+  --foreground: oklch(0.08 0.01 165);
 
   /* Surface */
   --card: oklch(1 0 0);
-  --card-foreground: var(--foreground);
-  --popover: var(--card);
-  --popover-foreground: var(--foreground);
+  --card-foreground: oklch(0.08 0.01 165);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.08 0.01 165);
 
-  /* Brand (Indigo–Violet) */
-  --primary: oklch(0.62 0.24 275);
-  --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.96 0.01 255);
-  --secondary-foreground: oklch(0.24 0.02 255);
+  /* ── Brand: Teal lebih cerah & vibrant ── */
+  --primary: oklch(0.60 0.18 175);
+  --primary-foreground: oklch(1 0 0);
+
+  /* ── Secondary: ada sedikit warna, bukan abu ── */
+  --secondary: oklch(0.94 0.025 168);
+  --secondary-foreground: oklch(0.12 0.02 165);
 
   /* Support */
-  --muted: oklch(0.96 0.01 255);
-  --muted-foreground: oklch(0.50 0.02 255);
-  --accent: oklch(0.95 0.02 210);
-  --accent-foreground: oklch(0.24 0.02 210);
+  --muted: oklch(0.95 0.015 165);
+  --muted-foreground: oklch(0.38 0.03 165);
+  --accent: oklch(0.90 0.05 168);
+  --accent-foreground: oklch(0.08 0.01 160);
+
+  /* ── Aksen biru sebagai warna ke-2 ── */
+  --blue-accent: #3b82f6;
+  --violet-accent: #8b5cf6;
+  --amber-accent: #f59e0b;
 
   /* State */
-  --destructive: oklch(0.60 0.26 28);
+  --destructive: oklch(0.60 0.25 25);
   --destructive-foreground: oklch(0.99 0 0);
-  --success: oklch(0.70 0.16 150);
-  --success-foreground: oklch(0.10 0.02 150);
-  --warning: oklch(0.85 0.16 85);
-  --warning-foreground: oklch(0.22 0.02 85);
-  --info: oklch(0.73 0.15 240);
-  --info-foreground: oklch(0.10 0.02 240);
+  --success: oklch(0.62 0.17 150);
+  --success-foreground: oklch(0.12 0.02 150);
+  --warning: oklch(0.80 0.17 82);
+  --warning-foreground: oklch(0.22 0.03 82);
+  --info: oklch(0.62 0.18 238);
+  --info-foreground: oklch(0.12 0.02 238);
 
   /* Stroke/Focus */
-  --border: oklch(0.89 0.01 255);
+  --border: oklch(0.86 0.025 165);
   --input: var(--border);
-  --ring: oklch(0.62 0.24 275);
+  --ring: oklch(0.55 0.20 172);
 
   /* Charts */
-  --chart-1: oklch(0.64 0.24 275);
-  --chart-2: oklch(0.70 0.18 200);
-  --chart-3: oklch(0.76 0.18 70);
-  --chart-4: oklch(0.55 0.20 350);
-  --chart-5: oklch(0.48 0.19 230);
+  --chart-1: oklch(0.55 0.20 172);
+  --chart-2: oklch(0.55 0.18 238);
+  --chart-3: oklch(0.72 0.16 82);
+  --chart-4: oklch(0.58 0.20 310);
+  --chart-5: oklch(0.55 0.17 30);
 
-  /* Radius & elevation */
-  --radius: 0.9rem;
-  --shadow-sm: 0 2px 8px rgb(0 0 0 / 0.06);
-  --shadow-md: 0 8px 24px rgb(0 0 0 / 0.12);
-  --shadow-lg: 0 16px 44px rgb(0 0 0 / 0.16);
+  /* ── Radius & Elevation — lebih terasa ── */
+  --radius: 0.85rem;
+  --shadow-sm:  0 2px 8px rgba(13, 180, 160, 0.10), 0 1px 3px rgba(0,0,0,0.06);
+  --shadow-md:  0 6px 24px rgba(13, 180, 160, 0.14), 0 2px 8px rgba(0,0,0,0.07);
+  --shadow-lg:  0 16px 48px rgba(13, 180, 160, 0.18), 0 4px 16px rgba(0,0,0,0.08);
+  --shadow-xl:  0 24px 64px rgba(13, 180, 160, 0.22), 0 8px 24px rgba(0,0,0,0.10);
+  --shadow-blue: 0 8px 24px rgba(59, 130, 246, 0.18);
 
-  /* Sidebar */
-  --sidebar: oklch(0.985 0.01 255);
-  --sidebar-foreground: var(--foreground);
+  /* Sidebar — sedikit lebih terwarna dari background */
+  --sidebar: oklch(0.965 0.018 168);
+  --sidebar-foreground: oklch(0.08 0.01 165);
   --sidebar-primary: var(--primary);
   --sidebar-primary-foreground: var(--primary-foreground);
-  --sidebar-accent: oklch(0.97 0.01 255);
-  --sidebar-accent-foreground: oklch(0.24 0.02 255);
-  --sidebar-border: var(--border);
+  --sidebar-accent: oklch(0.90 0.04 168);
+  --sidebar-accent-foreground: oklch(0.12 0.01 165);
+  --sidebar-border: oklch(0.88 0.022 165);
   --sidebar-ring: var(--ring);
 }
 
-/* ----- DARK ----- */
+/* ----- DARK (tetap putih/terang karena tema app ini memang light) ----- */
 .dark {
-  /* Teks terang di latar gelap → kontras AA */
-  --background: oklch(0.16 0.02 260);
-  --foreground: oklch(0.97 0.01 260);
+  --background: oklch(0.985 0.008 160);
+  --foreground: oklch(0.08 0.01 165);        /* hitam pekat */
 
-  /* Glassy cards/popover (sedikit transparan) */
-  --card: oklch(0.16 0.02 260 / 0.66);
-  --card-foreground: var(--foreground);
-  --popover: oklch(0.16 0.02 260 / 0.72);
-  --popover-foreground: var(--foreground);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.08 0.01 165);
+  --popover: var(--card);
+  --popover-foreground: oklch(0.08 0.01 165);
 
-  /* Brand tonjol (lebih cerah di dark) */
-  --primary: oklch(0.70 0.25 275);
-  --primary-foreground: oklch(0.12 0.01 260);
-  --secondary: oklch(0.26 0.01 260);
-  --secondary-foreground: oklch(0.96 0.01 260);
+  --primary: oklch(0.53 0.14 175);
+  --primary-foreground: oklch(1 0 0);
 
-  /* Support */
-  --muted: oklch(0.23 0.01 260);
-  --muted-foreground: oklch(0.75 0.02 260);
-  --accent: oklch(0.28 0.03 210);
-  --accent-foreground: oklch(0.97 0.01 210);
+  --secondary: oklch(0.95 0.02 160);
+  --secondary-foreground: oklch(0.10 0.01 165);
 
-  /* State */
-  --destructive: oklch(0.55 0.25 25);
-  --destructive-foreground: oklch(0.98 0 0);
-  --success: oklch(0.66 0.15 150);
-  --success-foreground: oklch(0.12 0.02 150);
-  --warning: oklch(0.78 0.14 85);
-  --warning-foreground: oklch(0.12 0.02 85);
-  --info: oklch(0.70 0.14 240);
-  --info-foreground: oklch(0.12 0.02 240);
+  --muted: oklch(0.96 0.01 160);
+  --muted-foreground: oklch(0.35 0.02 160);    /* abu gelap */
+  --accent: oklch(0.92 0.04 160);
+  --accent-foreground: oklch(0.08 0.01 160);
 
-  /* Stroke/Focus */
-  --border: oklch(0.28 0.01 260);
+  --destructive: oklch(0.60 0.25 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  --success: oklch(0.65 0.15 150);
+  --success-foreground: oklch(0.15 0.02 150);
+  --warning: oklch(0.82 0.15 85);
+  --warning-foreground: oklch(0.25 0.02 85);
+  --info: oklch(0.70 0.15 240);
+  --info-foreground: oklch(0.15 0.02 240);
+
+  --border: oklch(0.88 0.01 160);
   --input: var(--border);
-  --ring: oklch(0.57 0.22 275);
+  --ring: oklch(0.48 0.16 160);
 
-  /* Charts (sedikit boost) */
-  --chart-1: oklch(0.72 0.26 275);
-  --chart-2: oklch(0.68 0.22 200);
-  --chart-3: oklch(0.78 0.20 70);
-  --chart-4: oklch(0.65 0.23 350);
-  --chart-5: oklch(0.60 0.22 230);
-
-  /* Sidebar dark + glass */
-  --sidebar: oklch(0.13 0.02 260 / 0.55);
-  --sidebar-foreground: var(--foreground);
+  --sidebar: oklch(0.985 0.008 160);
+  --sidebar-foreground: oklch(0.08 0.01 165);
   --sidebar-primary: var(--primary);
   --sidebar-primary-foreground: var(--primary-foreground);
-  --sidebar-accent: oklch(0.20 0.02 260 / 0.60);
-  --sidebar-accent-foreground: var(--foreground);
-  --sidebar-border: oklch(0.30 0.01 260);
+  --sidebar-accent: oklch(0.95 0.02 160);
+  --sidebar-accent-foreground: oklch(0.10 0.01 165);
+  --sidebar-border: var(--border);
   --sidebar-ring: var(--ring);
 
-  --shadow-sm: 0 2px 10px rgb(0 0 0 / 0.25);
-  --shadow-md: 0 10px 26px rgb(0 0 0 / 0.32);
-  --shadow-lg: 0 18px 48px rgb(0 0 0 / 0.42);
+  --shadow-sm: 0 2px 8px rgb(13 148 136 / 0.04);
+  --shadow-md: 0 8px 24px rgb(13 148 136 / 0.08);
+  --shadow-lg: 0 16px 44px rgb(13 148 136 / 0.12);
 }
 
 /* =========================
@@ -197,48 +193,106 @@
 @layer base {
   * { @apply border-border outline-ring/50; }
   html { color-scheme: light dark; }
-  body { @apply bg-background text-foreground; }
+  body {
+    @apply text-foreground;
+    /* ── Putih mengkilat bersih ── */
+    background: #ffffff;
+  }
+  body > * { position: relative; z-index: 1; }
 }
 
 /* =========================
    UTILITIES & EFFECTS
    ========================= */
 @layer utilities {
-  /* Glass (dipakai di header/sidebar/card) */
+  /* ── Glass — lebih kaya & stylish ── */
   .glass {
-    background-color: color-mix(in oklch, var(--card) 86%, transparent);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    border: 1px solid color-mix(in oklch, var(--border) 70%, transparent);
+    background: linear-gradient(
+      135deg,
+      rgba(255,255,255,0.82) 0%,
+      rgba(255,255,255,0.70) 100%
+    );
+    backdrop-filter: blur(14px) saturate(1.5);
+    -webkit-backdrop-filter: blur(14px) saturate(1.5);
+    border: 1px solid rgba(13, 196, 176, 0.18);
+    box-shadow: 0 2px 12px rgba(13, 196, 176, 0.08), inset 0 1px 0 rgba(255,255,255,0.9);
   }
 
   /* Shadows */
-  .soft-shadow      { box-shadow: var(--shadow-md); }
-  .soft-shadow-lg   { box-shadow: var(--shadow-lg); }
-  .soft-shadow-sm   { box-shadow: var(--shadow-sm); }
+  .soft-shadow    { box-shadow: var(--shadow-md); }
+  .soft-shadow-lg { box-shadow: var(--shadow-lg); }
+  .soft-shadow-sm { box-shadow: var(--shadow-sm); }
+  .soft-shadow-xl { box-shadow: var(--shadow-xl); }
 
-  /* Page gradient halus, aman di light & dark */
+  /* ── Page gradient lebih vibrant ── */
   .page-gradient {
     background:
-      radial-gradient(600px 220px at 20% 0%,
-        color-mix(in oklch, var(--primary) 12%, transparent) 0%,
-        transparent 60%),
-      radial-gradient(520px 200px at 80% 8%,
-        color-mix(in oklch, var(--accent) 12%, transparent) 0%,
-        transparent 60%),
+      radial-gradient(700px 280px at 5% 0%,
+        rgba(13, 196, 176, 0.13) 0%, transparent 65%),
+      radial-gradient(600px 240px at 95% 10%,
+        rgba(59, 130, 246, 0.10) 0%, transparent 60%),
+      radial-gradient(500px 200px at 50% 100%,
+        rgba(139, 92, 246, 0.08) 0%, transparent 60%),
       var(--color-background);
   }
 
-  /* Text gradient untuk brand */
+  /* ── Text gradient vibrant teal→biru→violet ── */
   .text-gradient {
     background-image: linear-gradient(
       90deg,
-      var(--primary),
-      color-mix(in oklch, var(--primary) 70%, var(--accent))
+      #0dc4b0 0%,
+      #3b82f6 50%,
+      #8b5cf6 100%
     );
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
+  }
+  .text-gradient-teal {
+    background-image: linear-gradient(90deg, #10d4be 0%, #0ea5e9 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* ── Premium card dengan glow ── */
+  .card-premium {
+    background: linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(237,250,248,0.90) 100%);
+    border: 1px solid rgba(13, 196, 176, 0.22) !important;
+    box-shadow:
+      0 6px 24px rgba(13, 196, 176, 0.14),
+      0 2px 8px rgba(0,0,0,0.06),
+      inset 0 1px 0 rgba(255,255,255,0.95) !important;
+    transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+  }
+  .card-premium:hover {
+    transform: translateY(-3px);
+    box-shadow:
+      0 14px 40px rgba(13, 196, 176, 0.20),
+      0 4px 16px rgba(59, 130, 246, 0.10),
+      inset 0 1px 0 rgba(255,255,255,0.98) !important;
+    border-color: rgba(13, 196, 176, 0.38) !important;
+  }
+
+  /* ── Badge glow ── */
+  .badge-glow {
+    box-shadow: 0 0 8px rgba(13, 196, 176, 0.35);
+  }
+
+  /* ── Input premium ── */
+  .input-premium:focus {
+    border-color: rgba(13, 196, 176, 0.55) !important;
+    box-shadow: 0 0 0 3px rgba(13, 196, 176, 0.15), 0 2px 8px rgba(13, 196, 176, 0.12) !important;
+    outline: none;
+  }
+
+  /* ── Section header dengan garis gradient ── */
+  .section-divider {
+    border: none;
+    height: 2px;
+    background: linear-gradient(90deg, #10d4be 0%, #3b82f6 50%, transparent 100%);
+    border-radius: 999px;
+    opacity: 0.6;
   }
 
   /* Focus ring nyaman */
@@ -258,87 +312,145 @@
     box-shadow: var(--shadow-lg);
   }
 
-  /* Tombol gradasi brand */
+  /* ── Tombol gradasi brand — lebih cerah & vibrant ── */
   .btn-gradient {
-    background-image: linear-gradient(
-      135deg,
-      var(--primary) 0%,
-      color-mix(in oklch, var(--primary) 65%, var(--accent)) 60%,
-      var(--accent) 100%
-    );
-    color: var(--primary-foreground);
+    background: linear-gradient(135deg, #10d4be 0%, #0ea5e9 60%, #0d9488 100%) !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 14px rgba(13, 196, 176, 0.35), 0 1px 3px rgba(0,0,0,0.1) !important;
+    transition: all 0.25s ease !important;
   }
-  .btn-gradient:hover { filter: brightness(1.05); }
+  .btn-gradient:hover {
+    filter: brightness(1.08);
+    box-shadow: 0 6px 20px rgba(13, 196, 176, 0.45), 0 2px 6px rgba(0,0,0,0.12) !important;
+    transform: translateY(-1px);
+  }
 
   /* Tabel hover */
   .table-row-hover tbody tr:hover {
     background-color: color-mix(in oklch, var(--muted) 60%, transparent);
   }
 
-  /* Figma auth theme */
   .bg-figma-auth {
-    background: linear-gradient(180deg, #110f11 0%, #090728 100%);
+    background: #ffffff !important;
   }
   .btn-figma {
-    background: linear-gradient(90deg, #f8fbff 0%, #6fb7ff 45%, #2f6bff 75%, #1d45f3 100%);
-    color: #0b1533;
+    background: linear-gradient(135deg, #10d4be 0%, #0ea5e9 60%, #0d9488 100%) !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 16px rgba(13, 196, 176, 0.35), 0 1px 4px rgba(0,0,0,0.08) !important;
+    transition: all 0.25s ease !important;
   }
-  .btn-figma:hover { filter: brightness(1.05); }
+  .btn-figma:hover {
+    filter: brightness(1.07);
+    box-shadow: 0 6px 22px rgba(13, 196, 176, 0.45) !important;
+    transform: translateY(-1px);
+  }
   .btn-figma:active { transform: scale(0.98); }
 
-  /* Login role selector — gradasi putih-biru (HR vs Admin) */
-  .login-role-pill-hr {
-    background: linear-gradient(90deg, #f8fbff 0%, #6fb7ff 45%, #2f6bff 75%, #1d45f3 100%);
-    box-shadow:
-      0 4px 18px rgba(47, 107, 255, 0.42),
-      inset 0 1px 0 rgba(255, 255, 255, 0.55);
-  }
-  .login-role-pill-admin {
-    background: linear-gradient(90deg, #ffffff 0%, #9fd0ff 38%, #4d88ff 68%, #243ec9 100%);
-    box-shadow:
-      0 4px 18px rgba(36, 62, 201, 0.45),
-      inset 0 1px 0 rgba(255, 255, 255, 0.6);
-  }
-  .login-role-btn-hr:not([aria-selected="true"]):hover {
-    background: linear-gradient(90deg, rgba(248, 251, 255, 0.08) 0%, rgba(111, 183, 255, 0.12) 100%);
-  }
-  .login-role-btn-admin:not([aria-selected="true"]):hover {
-    background: linear-gradient(90deg, rgba(255, 255, 255, 0.06) 0%, rgba(77, 136, 255, 0.14) 100%);
-  }
-  .login-role-desc-hr {
-    border-color: rgba(111, 183, 255, 0.25);
-    background: linear-gradient(90deg, rgba(248, 251, 255, 0.04) 0%, rgba(47, 107, 255, 0.08) 100%);
-  }
-  .login-role-desc-admin {
-    border-color: rgba(77, 136, 255, 0.28);
-    background: linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0%, rgba(36, 62, 201, 0.1) 100%);
+  /* ── CSS Overrides untuk halaman berlatar belakang putih (Login, Register, Profil, Setting) ── */
+  .bg-figma-auth,
+  .bg-figma-auth main,
+  .bg-figma-auth div,
+  .bg-figma-auth h1,
+  .bg-figma-auth h2,
+  .bg-figma-auth h3,
+  .bg-figma-auth h4,
+  .bg-figma-auth p,
+  .bg-figma-auth label,
+  .bg-figma-auth span {
+    color: #1e293b; /* text-slate-800 */
   }
 
-  /* Admin dashboard */
+  /* Override kelas khusus text-white agar mengikuti tema gelap di halaman terang */
+  .bg-figma-auth .text-white,
+  .bg-figma-auth .text-slate-100,
+  .bg-figma-auth .text-muted-foreground {
+    color: #475569 !important; /* text-slate-600 */
+  }
+
+  /* Perkecil/hilangkan decorative glow orbs di halaman putih agar tidak kotor */
+  .bg-figma-auth .rounded-full.blur-\[120px\] {
+    opacity: 0.15 !important;
+  }
+
+  /* JAGA warna teks tombol utama/gradient tetap putih agar terbaca */
+  .bg-figma-auth button,
+  .bg-figma-auth .btn-gradient,
+  .bg-figma-auth .btn-figma,
+  .bg-figma-auth .btn-gradient *,
+  .bg-figma-auth .btn-figma *,
+  .bg-figma-auth button *,
+  .bg-figma-auth .bg-primary,
+  .bg-figma-auth .bg-primary *,
+  .bg-figma-auth .bg-emerald-500,
+  .bg-figma-auth .bg-emerald-500 *,
+  .bg-figma-auth .bg-rose-500,
+  .bg-figma-auth .bg-rose-500 * {
+    color: #ffffff !important;
+  }
+
+  /* JAGA teks badge tertentu agar tetap readable */
+  .bg-figma-auth .badge {
+    color: #0f766e !important; /* teal-700 */
+    border-color: rgba(13, 148, 136, 0.2) !important;
+  }
+
+
+  /* Login role selector — gradasi putih-hijau-biru */
+  .login-role-pill-hr {
+    background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%) !important;
+    box-shadow:
+      0 4px 18px rgba(13, 148, 136, 0.25),
+      inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  }
+  .login-role-pill-admin {
+    background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%) !important;
+    box-shadow:
+      0 4px 18px rgba(3, 105, 161, 0.25),
+      inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  }
+  .login-role-btn-hr:not([aria-selected="true"]):hover {
+    background: linear-gradient(90deg, rgba(13, 148, 136, 0.08) 0%, rgba(20, 184, 166, 0.12) 100%);
+  }
+  .login-role-btn-admin:not([aria-selected="true"]):hover {
+    background: linear-gradient(90deg, rgba(2, 132, 199, 0.06) 0%, rgba(3, 105, 161, 0.14) 100%);
+  }
+  .login-role-desc-hr {
+    border-color: rgba(13, 148, 136, 0.25);
+    background: linear-gradient(90deg, rgba(240, 247, 244, 0.5) 0%, rgba(13, 148, 136, 0.08) 100%);
+  }
+  .login-role-desc-admin {
+    border-color: rgba(3, 105, 161, 0.28);
+    background: linear-gradient(90deg, rgba(240, 247, 244, 0.5) 0%, rgba(3, 105, 161, 0.1) 100%);
+  }
+
+  /* ── Admin dashboard — lebih berwarna ── */
   .admin-page-bg {
     background:
-      radial-gradient(ellipse 80% 50% at 100% -10%, rgba(47, 107, 255, 0.08), transparent),
-      radial-gradient(ellipse 60% 40% at 0% 100%, rgba(111, 183, 255, 0.06), transparent);
+      radial-gradient(ellipse 80% 50% at 100% -10%, rgba(13, 212, 190, 0.12), transparent),
+      radial-gradient(ellipse 60% 40% at 0% 100%, rgba(59, 130, 246, 0.09), transparent),
+      radial-gradient(ellipse 40% 30% at 50% 50%, rgba(139, 92, 246, 0.05), transparent) !important;
   }
   .admin-stat-card {
     transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+    border: 1px solid rgba(13, 196, 176, 0.15);
   }
   .admin-stat-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(47, 107, 255, 0.12);
-    border-color: rgba(111, 183, 255, 0.35);
+    transform: translateY(-3px);
+    box-shadow: 0 12px 32px rgba(13, 196, 176, 0.18), 0 4px 12px rgba(0,0,0,0.06);
+    border-color: rgba(13, 196, 176, 0.40);
   }
   .admin-jd-card {
     transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+    border: 1px solid rgba(13, 196, 176, 0.12);
   }
   .admin-jd-card:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
-    border-color: rgba(111, 183, 255, 0.35);
+    transform: translateY(-2px);
+    box-shadow: 0 12px 32px rgba(13, 196, 176, 0.14), 0 3px 10px rgba(0,0,0,0.05);
+    border-color: rgba(13, 196, 176, 0.38);
   }
   .admin-jd-card-expanded {
-    border-color: rgba(47, 107, 255, 0.45) !important;
-    box-shadow: 0 12px 32px rgba(47, 107, 255, 0.15);
+    border-color: rgba(13, 196, 176, 0.50) !important;
+    box-shadow: 0 14px 40px rgba(13, 196, 176, 0.16);
   }
   .admin-action-btn {
     transition: transform 0.2s ease, background 0.2s ease, color 0.2s ease;
@@ -366,27 +478,30 @@
     color: var(--foreground);
   }
 
-  /* HR dashboard (Overview & Documents) */
+  /* ── HR dashboard — gradasi teal+biru lebih cerah ── */
   .hr-page-bg {
     background:
-      radial-gradient(ellipse 70% 45% at 100% 0%, rgba(47, 107, 255, 0.09), transparent),
-      radial-gradient(ellipse 50% 35% at 0% 100%, rgba(111, 183, 255, 0.07), transparent);
+      radial-gradient(ellipse 75% 50% at 100% 0%,  rgba(13, 212, 190, 0.14), transparent),
+      radial-gradient(ellipse 55% 40% at 0% 100%,  rgba(59, 130, 246, 0.11), transparent),
+      radial-gradient(ellipse 45% 35% at 50% 50%,  rgba(139, 92, 246, 0.06), transparent);
   }
   .hr-stat-card {
     transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+    border: 1px solid rgba(13, 196, 176, 0.14);
   }
   .hr-stat-card:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 10px 28px rgba(47, 107, 255, 0.14);
-    border-color: rgba(111, 183, 255, 0.35);
+    transform: translateY(-4px);
+    box-shadow: 0 14px 36px rgba(13, 196, 176, 0.20), 0 4px 12px rgba(59,130,246,0.10);
+    border-color: rgba(13, 196, 176, 0.42);
   }
   .hr-quick-action {
     transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+    border: 1px solid rgba(13, 196, 176, 0.12);
   }
   .hr-quick-action:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(47, 107, 255, 0.12);
-    border-color: rgba(111, 183, 255, 0.4);
+    transform: translateY(-3px);
+    box-shadow: 0 10px 28px rgba(13, 196, 176, 0.18), 0 3px 10px rgba(59,130,246,0.08);
+    border-color: rgba(13, 196, 176, 0.42);
   }
   .hr-quick-action:active {
     transform: scale(0.98);
@@ -395,19 +510,21 @@
     transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
   }
   .hr-query-item:hover {
-    background: rgba(111, 183, 255, 0.08);
-    border-color: rgba(111, 183, 255, 0.25);
+    background: rgba(13, 212, 190, 0.08);
+    border-color: rgba(13, 196, 176, 0.28);
+    transform: translateX(2px);
   }
   .hr-doc-row {
     transition: background 0.2s ease;
   }
   .hr-doc-card {
     transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+    border: 1px solid rgba(13, 196, 176, 0.12);
   }
   .hr-doc-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.1);
-    border-color: rgba(111, 183, 255, 0.35);
+    transform: translateY(-3px);
+    box-shadow: 0 10px 28px rgba(13, 196, 176, 0.16), 0 3px 10px rgba(0,0,0,0.06);
+    border-color: rgba(13, 196, 176, 0.40);
   }
   .hr-filter-pill-active {
     background: linear-gradient(90deg, rgba(248, 251, 255, 0.12) 0%, rgba(47, 107, 255, 0.32) 100%);
@@ -423,16 +540,15 @@
 
   /* AI Assistant workspace — UI only */
   .aw-header {
-    background: linear-gradient(180deg, rgba(17, 15, 17, 0.92) 0%, rgba(9, 7, 40, 0.85) 100%);
+    background: #ffffff;
+    border-bottom: 1px solid #f1f5f9;
     backdrop-filter: blur(12px);
   }
   .aw-panel-left {
-    background: linear-gradient(180deg, rgba(0, 0, 0, 0.15) 0%, transparent 100%);
+    background: #ffffff;
   }
   .aw-panel-right {
-    background:
-      radial-gradient(ellipse 80% 40% at 100% 0%, rgba(47, 107, 255, 0.06), transparent),
-      rgba(0, 0, 0, 0.08);
+    background: #f8fafc;
   }
   .aw-msg-enter {
     animation: aw-msg-in 0.35s ease-out both;
@@ -489,11 +605,11 @@
     50% { opacity: 0.85; }
   }
 
-  /* Scrollbar halus */
-  * { scrollbar-width: thin; scrollbar-color: var(--muted-foreground) transparent; }
-  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  /* ── Scrollbar berwarna ── */
+  * { scrollbar-width: thin; scrollbar-color: rgba(13,196,176,0.4) transparent; }
+  ::-webkit-scrollbar { width: 7px; height: 7px; }
   ::-webkit-scrollbar-thumb {
-    background: color-mix(in oklch, var(--primary) 30%, var(--muted));
+    background: linear-gradient(180deg, #10d4be, #0ea5e9);
     border-radius: 999px;
   }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -535,5 +651,150 @@
   }
   .login-role-desc-enter {
     animation: login-role-desc-in 0.35s ease-out both;
+  }
+}
+
+/* ==========================================================================
+   GLOBAL OVERRIDES FOR CONSISTENT LIGHT PORTAL (MINT, SAGE, TEAL & CHARCOAL)
+   ========================================================================== */
+
+/* ── Card global — Putih bersih dengan soft shadow (meniru referensi) ── */
+body:not(.theme-dark-applicant) [class*="card"],
+body:not(.theme-dark-applicant) .card {
+  background: #ffffff;
+  border: 1px solid #f1f5f9 !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.02), 0 1px 3px rgba(0, 0, 0, 0.01) !important;
+  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+}
+body:not(.theme-dark-applicant) .card:hover {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04) !important;
+  border-color: #e2e8f0 !important;
+  transform: translateY(-2px);
+}
+
+/* ── Badge default lebih berwarna ── */
+.badge {
+  border: 1px solid rgba(13, 196, 176, 0.20);
+}
+
+/* Background hierarchy */
+body:not(.theme-dark-applicant) .bg-slate-950,
+body:not(.theme-dark-applicant) .bg-\[\#070c17\],
+body:not(.theme-dark-applicant) .bg-\[\#07090e\],
+body:not(.theme-dark-applicant) .bg-\[\#050912\] {
+  background-color: var(--background) !important;
+}
+
+body:not(.theme-dark-applicant) .bg-slate-900,
+body:not(.theme-dark-applicant) .bg-\[\#0d131f\],
+body:not(.theme-dark-applicant) .bg-\[\#111927\],
+body:not(.theme-dark-applicant) .bg-\[\#0f172a\] {
+  background-color: var(--card) !important;
+}
+
+body:not(.theme-dark-applicant) .bg-\[\#080d16\],
+body:not(.theme-dark-applicant) .bg-\[\#0a1122\],
+body:not(.theme-dark-applicant) .bg-\[\#0f1b2f\],
+body:not(.theme-dark-applicant) .bg-\[\#0d2138\],
+body:not(.theme-dark-applicant) .bg-\[\#0b1626\],
+body:not(.theme-dark-applicant) .bg-\[\#080d1a\] {
+  background-color: var(--secondary) !important;
+}
+
+/* Text overrides */
+body:not(.theme-dark-applicant) .text-white,
+body:not(.theme-dark-applicant) .text-slate-100,
+body:not(.theme-dark-applicant) .text-slate-200 {
+  color: var(--foreground) !important;
+}
+
+body:not(.theme-dark-applicant) .text-slate-300 {
+  color: oklch(0.35 0.01 220) !important;
+}
+
+body:not(.theme-dark-applicant) .text-slate-400,
+body:not(.theme-dark-applicant) .text-slate-500 {
+  color: var(--muted-foreground) !important;
+}
+
+/* Border overrides */
+body:not(.theme-dark-applicant) .border-slate-800,
+body:not(.theme-dark-applicant) .border-\[\#1b253b\],
+body:not(.theme-dark-applicant) .border-\[\#1b2b48\],
+body:not(.theme-dark-applicant) .border-\[\#1f2d47\],
+body:not(.theme-dark-applicant) .border-\[\#1e2f4d\],
+body:not(.theme-dark-applicant) .border-\[\#1c2c47\],
+body:not(.theme-dark-applicant) .border-\[\#131d30\],
+body:not(.theme-dark-applicant) .border-\[\#131d2e\],
+body:not(.theme-dark-applicant) .border-\[\#1e2b48\] {
+  border-color: var(--border) !important;
+}
+
+/* Button & interactive hovers */
+body:not(.theme-dark-applicant) .hover\:bg-slate-800:hover {
+  background-color: var(--accent) !important;
+}
+body:not(.theme-dark-applicant) .hover\:text-white:hover {
+  color: var(--primary) !important;
+}
+
+/* Specific component fixes for light theme readability */
+body:not(.theme-dark-applicant) .glass {
+  background-color: rgba(255, 255, 255, 0.75) !important;
+  border-color: var(--border) !important;
+}
+
+/* Title colors inside cards and main headers */
+body:not(.theme-dark-applicant) h1, 
+body:not(.theme-dark-applicant) h2, 
+body:not(.theme-dark-applicant) h3, 
+body:not(.theme-dark-applicant) h4, 
+body:not(.theme-dark-applicant) h5, 
+body:not(.theme-dark-applicant) h6,
+body:not(.theme-dark-applicant) .card-title,
+body:not(.theme-dark-applicant) .font-extrabold {
+  color: var(--foreground) !important;
+}
+
+/* Input backgrounds and borders */
+body:not(.theme-dark-applicant) input, 
+body:not(.theme-dark-applicant) select, 
+body:not(.theme-dark-applicant) textarea {
+  background-color: var(--card) !important;
+  color: var(--foreground) !important;
+  border-color: var(--border) !important;
+}
+
+/* Custom list items inside overview card */
+body:not(.theme-dark-applicant) li.flex.items-start.gap-2.text-xs {
+  color: var(--foreground) !important;
+}
+
+/* RAG AI chat message overrides for light theme compatibility */
+body:not(.theme-dark-applicant) .aw-chat-box {
+  background-color: var(--card) !important;
+  border-color: var(--border) !important;
+}
+body:not(.theme-dark-applicant) .aw-chat-input-container {
+  background-color: var(--secondary) !important;
+  border-color: var(--border) !important;
+}
+
+/* Custom badge text matching */
+body:not(.theme-dark-applicant) .badge-secondary {
+  background-color: var(--secondary) !important;
+  color: var(--primary) !important;
+  border: 1px solid var(--border) !important;
+}
+
+/* ── Accordion animation for document type panel ── */
+@keyframes accordionDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }

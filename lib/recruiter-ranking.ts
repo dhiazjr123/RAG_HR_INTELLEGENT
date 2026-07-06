@@ -8,7 +8,7 @@ export type RankedCandidate = {
   score: number;
   quotes: string[];
   reason: string;
-  /** Metadata kedalaman bukti — dipakai tie-break peringkat */
+  cvBody?: string;
   depthMeta?: { matchedReqs: number; expCount: number; skillCount: number };
 };
 
@@ -212,12 +212,12 @@ function inferRoleDomainFromQuery(query: string): RoleDomain {
   if (/frontend|front[- ]?end|react\s*dev|ui\s*dev|web\s*dev|next\.?js/.test(s)) return "frontend";
   if (/mobile|flutter|android|ios|kotlin|swift/.test(s)) return "mobile";
   if (/fullstack|full[- ]?stack/.test(s)) return "fullstack";
-  
+
   // PERBAIKAN: Routing akurat untuk packaging tech vs worker
   if (/technician|technition|teknisi/i.test(s) && /packaging|pengemasan|pbk/i.test(s)) return "packaging_tech";
   if (/worker|operator/i.test(s) && /packaging|pengemasan|pbk/i.test(s)) return "packaging_worker";
   if (/packaging|pengemasan|\bPBK\b/i.test(s)) return "packaging_worker";
-  
+
   if (/\bqa\b|quality\s*assurance|software\s*testing|qa\s*analyst|qa\s*engineer/i.test(s)) return "qa";
   if (/\bmarketing\b|digital\s*marketing|seo|sosmed|social\s*media|content\s*creator|copywriter/i.test(s)) return "marketing";
   if (/\bproduksi\b|staff\s*produksi/i.test(s)) return "produksi";
@@ -233,12 +233,12 @@ function inferRoleDomainFromCriteriaId(id: string): RoleDomain {
   if (/backend|back-end|back_end/.test(s)) return "backend";
   if (/game|unity|gamedev/.test(s)) return "game";
   if (/mobile|flutter|android|ios/.test(s)) return "mobile";
-  
+
   // PERBAIKAN: Routing akurat
   if (/packaging/i.test(s) && /tech/i.test(s)) return "packaging_tech";
   if (/packaging/i.test(s) && /worker/i.test(s)) return "packaging_worker";
   if (/packaging|pbk|pengemasan/.test(s)) return "packaging_worker";
-  
+
   if (/qa|quality.assurance|testing/.test(s)) return "qa";
   if (/marketing|digital.marketing|content/.test(s)) return "marketing";
   if (/produksi|production/.test(s)) return "produksi";
@@ -375,10 +375,10 @@ function signalsFromJdText(jdText: string, domain: RoleDomain): RoleSignal[] {
   const allKnown =
     domain === "general"
       ? [
-          ...FRONTEND_SIGNALS, ...BACKEND_SIGNALS, ...GAME_SIGNALS, ...MOBILE_SIGNALS,
-          ...PACKAGING_TECH_SIGNALS, ...PACKAGING_WORKER_SIGNALS, ...QA_SIGNALS, ...MARKETING_SIGNALS,
-          ...PRODUKSI_SIGNALS, ...RND_SIGNALS, ...SUPPLY_CHAIN_SIGNALS, ...HR_SIGNALS
-        ]
+        ...FRONTEND_SIGNALS, ...BACKEND_SIGNALS, ...GAME_SIGNALS, ...MOBILE_SIGNALS,
+        ...PACKAGING_TECH_SIGNALS, ...PACKAGING_WORKER_SIGNALS, ...QA_SIGNALS, ...MARKETING_SIGNALS,
+        ...PRODUKSI_SIGNALS, ...RND_SIGNALS, ...SUPPLY_CHAIN_SIGNALS, ...HR_SIGNALS
+      ]
       : domainBase;
   const signals: RoleSignal[] = [];
   const seen = new Set<string>();
@@ -458,7 +458,7 @@ function applyDomainScoreCaps(score: number, cvBody: string, domain: RoleDomain)
     const hasBackend = hasStrongBackendEvidence(cvBody);
     const gameHeavy = hasStrongGameEvidence(cvBody);
     // PELONGGARAN: Jangan hukum developer multi-bahasa
-    if (!hasBackend) s = Math.min(s, gameHeavy ? 45 : 70); 
+    if (!hasBackend) s = Math.min(s, gameHeavy ? 45 : 70);
     else if (gameHeavy && !/\b(backend|spring|node|django|fastapi|python|java|sql|api)\b/i.test(cvBody)) {
       s = Math.min(s, 80);
     }
@@ -507,7 +507,7 @@ function applyDomainScoreCaps(score: number, cvBody: string, domain: RoleDomain)
 
   if (domain === "marketing") {
     const hasMarketing = /\b(marketing|seo|sem|ads|sosmed|social\s*media|copywriting|content|kampanye|campaign|roas|fmcg)\b/i.test(cvBody);
-    if (!hasMarketing) s = Math.min(s, 12); 
+    if (!hasMarketing) s = Math.min(s, 12);
     if (hasStrongBackendEvidence(cvBody) && !hasMarketing) s = Math.min(s, 10);
     if (hasStrongGameEvidence(cvBody) && !hasMarketing) s = Math.min(s, 10);
   }
@@ -624,19 +624,19 @@ function roleDomainLabel(domain: RoleDomain): string {
 
 function signalsForDomain(domain: RoleDomain, query: string): RoleSignal[] {
   switch (domain) {
-    case "game":             return [...GAME_SIGNALS, ...MOBILE_SIGNALS];
-    case "backend":          return BACKEND_SIGNALS;
-    case "frontend":         return FRONTEND_SIGNALS;
-    case "mobile":           return MOBILE_SIGNALS;
-    case "fullstack":        return [...BACKEND_SIGNALS, ...FRONTEND_SIGNALS];
-    case "packaging_tech":   return PACKAGING_TECH_SIGNALS;
+    case "game": return [...GAME_SIGNALS, ...MOBILE_SIGNALS];
+    case "backend": return BACKEND_SIGNALS;
+    case "frontend": return FRONTEND_SIGNALS;
+    case "mobile": return MOBILE_SIGNALS;
+    case "fullstack": return [...BACKEND_SIGNALS, ...FRONTEND_SIGNALS];
+    case "packaging_tech": return PACKAGING_TECH_SIGNALS;
     case "packaging_worker": return PACKAGING_WORKER_SIGNALS;
-    case "qa":               return QA_SIGNALS;
-    case "marketing":        return MARKETING_SIGNALS;
-    case "produksi":         return PRODUKSI_SIGNALS;
-    case "rnd":              return RND_SIGNALS;
-    case "supplychain":      return SUPPLY_CHAIN_SIGNALS;
-    case "hr":               return HR_SIGNALS;
+    case "qa": return QA_SIGNALS;
+    case "marketing": return MARKETING_SIGNALS;
+    case "produksi": return PRODUKSI_SIGNALS;
+    case "rnd": return RND_SIGNALS;
+    case "supplychain": return SUPPLY_CHAIN_SIGNALS;
+    case "hr": return HR_SIGNALS;
     case "general": {
       const patterns = queryKeywordsAsPatterns(query);
       if (patterns.length === 0) return [];
@@ -676,6 +676,8 @@ function extractJdEvidenceBullets(
   const add = (raw: string, kind?: "skill" | "pengalaman" | "proyek") => {
     let t = normalizeEvidenceBullet(raw);
     if (!t || t.length < 4 || isEvidenceFluff(t)) return;
+    const cleanContent = t.replace(/^(?:skill|pengalaman|proyek):\s*/i, "").trim();
+    if (isExperienceHeaderLine(cleanContent)) return;
     if (!bulletMatchesActiveDomain(t, domain)) return;
 
     if (kind === "skill") {
@@ -725,10 +727,17 @@ function extractJdEvidenceBullets(
     const block = extractCvSection(body, headerRe);
     if (!block) continue;
     const isProyek = /proyek|project|portofolio/i.test(headerRe.source);
-    for (const line of splitEvidenceLines(block)) {
-      if (!signalHit(line)) continue;
-      const compact = compactExperienceBullet(line, domain);
-      if (compact) add(compact, isProyek ? "proyek" : "pengalaman");
+
+    const paragraphs = joinCvLinesToParagraphs(block);
+    for (const p of paragraphs) {
+      for (const line of splitIntoSentences(p)) {
+        if (line.length >= 8 && !isLowValueRawCvLine(line) && !isEvidenceFluff(line)) {
+          if (!signalHit(line)) continue;
+          const compact = compactExperienceBullet(line, domain);
+          if (compact) add(compact, isProyek ? "proyek" : "pengalaman");
+          if (bullets.length >= 5) break;
+        }
+      }
       if (bullets.length >= 5) break;
     }
   }
@@ -828,6 +837,8 @@ function prepareEvidenceForDisplay(text: string): string {
   let t = cleanPdfArtifacts(text);
   t = collapseRepeatedPhrases(t);
   t = t.replace(/^\[(?:CV|TABLE|Section|Paragraph)[^\]]*\]\s*/i, "").replace(/^[-•*]\s*/, "").trim();
+  // Bersihkan prefiks kategori/industri yang terikut di awal teks (misal: "Minuman. ", "Makanan. ", "FMCG. ")
+  t = t.replace(/^(?:minuman|makanan|makanan\s+dan\s+minuman|fmcg|pengalaman\s+kerja|riwayat\s+kerja)\s*[:：.]\s*/i, "");
   if (!t || isEvidenceFluff(t)) return "";
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
@@ -874,17 +885,17 @@ function compactExperienceBullet(line: string, domain: RoleDomain): string {
 function signalHitInText(text: string, domain: RoleDomain): boolean {
   const sigs =
     domain === "game" ? [...GAME_SIGNALS, ...MOBILE_SIGNALS] :
-    domain === "backend" ? BACKEND_SIGNALS :
-    domain === "frontend" ? FRONTEND_SIGNALS :
-    domain === "packaging_tech" ? PACKAGING_TECH_SIGNALS :
-    domain === "packaging_worker" ? PACKAGING_WORKER_SIGNALS :
-    domain === "qa" ? QA_SIGNALS :
-    domain === "marketing" ? MARKETING_SIGNALS :
-    domain === "produksi" ? PRODUKSI_SIGNALS :
-    domain === "rnd" ? RND_SIGNALS :
-    domain === "supplychain" ? SUPPLY_CHAIN_SIGNALS :
-    domain === "hr" ? HR_SIGNALS :
-    [...GAME_SIGNALS, ...BACKEND_SIGNALS, ...FRONTEND_SIGNALS, ...MOBILE_SIGNALS, ...PACKAGING_TECH_SIGNALS, ...PACKAGING_WORKER_SIGNALS, ...QA_SIGNALS, ...MARKETING_SIGNALS, ...PRODUKSI_SIGNALS, ...RND_SIGNALS, ...SUPPLY_CHAIN_SIGNALS, ...HR_SIGNALS];
+      domain === "backend" ? BACKEND_SIGNALS :
+        domain === "frontend" ? FRONTEND_SIGNALS :
+          domain === "packaging_tech" ? PACKAGING_TECH_SIGNALS :
+            domain === "packaging_worker" ? PACKAGING_WORKER_SIGNALS :
+              domain === "qa" ? QA_SIGNALS :
+                domain === "marketing" ? MARKETING_SIGNALS :
+                  domain === "produksi" ? PRODUKSI_SIGNALS :
+                    domain === "rnd" ? RND_SIGNALS :
+                      domain === "supplychain" ? SUPPLY_CHAIN_SIGNALS :
+                        domain === "hr" ? HR_SIGNALS :
+                          [...GAME_SIGNALS, ...BACKEND_SIGNALS, ...FRONTEND_SIGNALS, ...MOBILE_SIGNALS, ...PACKAGING_TECH_SIGNALS, ...PACKAGING_WORKER_SIGNALS, ...QA_SIGNALS, ...MARKETING_SIGNALS, ...PRODUKSI_SIGNALS, ...RND_SIGNALS, ...SUPPLY_CHAIN_SIGNALS, ...HR_SIGNALS];
   return sigs.some((s) => s.re.test(text));
 }
 
@@ -964,21 +975,21 @@ function prioritizeEvidenceBullets(
 ): string[] {
   const domainBoost =
     domain === "backend" ? /\b(spring|node|fastapi|django|rest\s*api|postgresql|mysql|backend|java|python|sql|api)\b/i :
-    domain === "game" ? /\b(unity|game|unreal|godot|gameplay|2d|3d|c#|csharp|top[- ]?down)\b/i :
-    domain === "frontend" ? /\b(react|vue|angular|next\.?js|typescript|frontend)\b/i :
-    domain === "mobile" ? /\b(flutter|android|ios|kotlin|mobile)\b/i :
-    domain === "packaging_tech" || domain === "packaging_worker" ? /\b(packaging|pengemasan|HSSE|halal|mesin|QMS|technician|PBK)\b/i :
-    domain === "qa" ? /\b(qa|quality\s*assurance|testing|selenium|appium|test\s*case|bug\s*report)\b/i :
-    domain === "marketing" ? /\b(marketing|seo|sem|ads|sosmed|social\s*media|copywriting|content|campaign|roas|fmcg)\b/i :
-    domain === "produksi" ? /\b(produksi|manufaktur|fmcg|gmp|k3|sop|shift|lini)\b/i :
-    domain === "rnd" ? /\b(r&d|rnd|food|pangan|kimia|biologi|formulasi|sensorik|lab|haccp)\b/i :
-    domain === "supplychain" ? /\b(supply|chain|logistik|inventory|gudang|mrp|erp|sap|oracle)\b/i :
-    domain === "hr" ? /\b(hr|rekrutmen|recruitment|sourcing|interview|psikologi|onboarding)\b/i :
-    /\b(unity|game|react|spring|node|api|packaging|pengemasan|qa|testing|marketing|produksi|hr|supply)\b/i;
+      domain === "game" ? /\b(unity|game|unreal|godot|gameplay|2d|3d|c#|csharp|top[- ]?down)\b/i :
+        domain === "frontend" ? /\b(react|vue|angular|next\.?js|typescript|frontend)\b/i :
+          domain === "mobile" ? /\b(flutter|android|ios|kotlin|mobile)\b/i :
+            domain === "packaging_tech" || domain === "packaging_worker" ? /\b(packaging|pengemasan|HSSE|halal|mesin|QMS|technician|PBK)\b/i :
+              domain === "qa" ? /\b(qa|quality\s*assurance|testing|selenium|appium|test\s*case|bug\s*report)\b/i :
+                domain === "marketing" ? /\b(marketing|seo|sem|ads|sosmed|social\s*media|copywriting|content|campaign|roas|fmcg)\b/i :
+                  domain === "produksi" ? /\b(produksi|manufaktur|fmcg|gmp|k3|sop|shift|lini)\b/i :
+                    domain === "rnd" ? /\b(r&d|rnd|food|pangan|kimia|biologi|formulasi|sensorik|lab|haccp)\b/i :
+                      domain === "supplychain" ? /\b(supply|chain|logistik|inventory|gudang|mrp|erp|sap|oracle)\b/i :
+                        domain === "hr" ? /\b(hr|rekrutmen|recruitment|sourcing|interview|psikologi|onboarding)\b/i :
+                          /\b(unity|game|react|spring|node|api|packaging|pengemasan|qa|testing|marketing|produksi|hr|supply)\b/i;
 
   const domainPenalty =
     domain === "backend" ? /\b(unity|game\s*2d|godot|unreal|gameplay|top[- ]?down)\b/i :
-    domain === "game" ? /\b(spring\s*boot|django|fastapi|erp)\b/i : null;
+      domain === "game" ? /\b(spring\s*boot|django|fastapi|erp)\b/i : null;
 
   const score = (b: string) => {
     let s = 0;
@@ -1066,6 +1077,8 @@ function isIncompleteFragment(text: string): boolean {
   if (/^(website|pengembangan|membangun|membuat|pada|dan|serta)\b/i.test(t) && !/[.!?]$/.test(t)) return true;
   if (/^[a-z\u00C0-\u024F]/.test(t) && t.length < 90 && !/[.!?]$/.test(t)) return true;
   if (/^[A-Z][a-z]+\.\s+Saya\b/.test(t) && !/\b(mengembangkan|membangun|pengalaman|game)\b/i.test(t)) return true;
+  // Tambahan: Jika diakhiri dengan kata sambung + satu kata benda/keterangan yang menggantung (seperti "dan pengalaman", "dengan latar", "selama hampir")
+  if (/\b(dan|serta|dengan|atau|untuk|pada|dalam|sebagai|selama|yang)\s+[a-z\u00C0-\u024F]{2,15}\s*$/i.test(t) && !/[.!?]$/.test(t)) return true;
   return false;
 }
 
@@ -1240,6 +1253,32 @@ function isLowValueRawCvLine(line: string): boolean {
   return false;
 }
 
+function isExperienceHeaderLine(text: string): boolean {
+  const t = text.trim();
+
+  // 1. Deteksi kata kunci perusahaan atau pola instansi umum
+  const hasCompany = /\b(pt\b|cv\b|\btbk\b|\bcorp\b|\bltd\b|\binc\b|\bco\b|\bgroup\b|\bpt\.\s|cv\.\s|indonesia\b|beverage|manufacturing|tbk\.)/i.test(t);
+
+  // 2. Deteksi rentang tahun / tanggal (misal: 2024-2026, 2024 – Sekarang, dsb)
+  const hasDateRange = /\b(20\d{2}|19\d{2})\s*[-–—/]\s*(20\d{2}|19\d{2}|sekarang|present|current)\b/i.test(t) ||
+    /\b(jan|feb|mar|apr|mei|jun|jul|agu|sep|okt|nov|des|january|february|march|april|may|june|july|august|september|october|november|december)\b.*\b(20\d{2}|19\d{2})\b/i.test(t);
+
+  // 3. Deteksi pemisah format header (misal: @, at, | , -, –)
+  const hasSeparators = /[\s]+[@|–—\-\/]+[\s]+/i.test(t) || /\s+at\s+/i.test(t);
+
+  // Jika memiliki indikator perusahaan atau kombinasi rentang tanggal dan pemisah
+  if (hasCompany || hasDateRange || (hasSeparators && t.length < 120)) {
+    return true;
+  }
+
+  // Tambahan deteksi jika baris sangat pendek dan diakhiri tahun
+  if (/\b(20\d{2}|19\d{2})\b/.test(t) && t.length < 80) {
+    return true;
+  }
+
+  return false;
+}
+
 /** Filter kutipan bukti — tanpa batas panjang agresif (kalimat panjang tetap valid) */
 function isLowValueEvidence(text: string): boolean {
   const t = text.trim();
@@ -1372,6 +1411,7 @@ const SECTION_SKIP =
 /** Kata yang bukan bagian nama orang (skill, institusi, role, teknologi) */
 const NOT_NAME_WORDS = new Set([
   "staff", "karyawan", "pekerja", "operator", "teknisi", "cv", "resume", "profil", "profile", "portofolio", "portfolio", "skills", "skill", "pengalaman", "experience", "pendidikan", "education", "ringkasan", "summary",
+  "jenis", "kelamin", "nama", "lengkap", "tempat", "lahir", "tanggal", "status", "pernikahan", "agama", "kewarganegaraan", "telepon", "alamat", "kontak", "hobi", "saya", "tentang", "kemampuan",
   "membangun", "membuat", "mengembangkan", "mendesain", "developed", "building", "created",
   "mobile", "game", "development", "website", "application", "flutter", "unity", "android",
   "backend", "frontend", "api", "pelamar", "identitas", "ekstraksi", "gunakan",
@@ -1446,9 +1486,9 @@ function isInstitutionOrSkillPhrase(n: string): boolean {
 
 export function looksLikePersonName(n: string): boolean {
   const words = n.toLowerCase().split(/\s+/).filter(Boolean);
-  
+
   if (words.length < 1 || words.length > 5) return false;
-  
+
   if (words.length === 1) {
     const w = words[0];
     if (w.length < 3) return false;
@@ -2002,7 +2042,7 @@ export function extractApplicantName(text: string): string | null {
     const w = 30 - idx * 3;
     if (/^[A-Z\u00C0-\u024F]{2,}(?:\s+[A-Z\u00C0-\u024F]{2,}){1,4}$/.test(line)) add(line, w + 6);
     if (/^[A-Z][a-z\u00C0-\u024F]{1,}(?:\s+[A-Z][a-z\u00C0-\u024F]{1,}){1,4}$/.test(line)) add(line, w + 4);
-    
+
     if (/^[A-Z][a-z\u00C0-\u024F]{2,20}$/.test(line)) add(line, w + 2);
     if (/^[A-Z\u00C0-\u024F]{3,20}$/.test(line)) add(line, w + 3);
 
@@ -2096,10 +2136,16 @@ function extractCvEvidenceUnits(cvBody: string, domain: RoleDomain): CvEvidenceU
   for (const [headerRe, kind] of experienceSections) {
     const block = extractCvSection(body, headerRe);
     if (!block) continue;
-    for (const line of splitEvidenceLines(block)) push(line, kind);
-    for (const line of block.split(/\n+/)) {
-      const compact = compactExperienceBullet(line, domain);
-      if (compact) push(compact, kind);
+
+    const paragraphs = joinCvLinesToParagraphs(block);
+    for (const p of paragraphs) {
+      for (const line of splitIntoSentences(p)) {
+        if (line.length >= 8 && !isLowValueRawCvLine(line) && !isEvidenceFluff(line)) {
+          push(line, kind);
+          const compact = compactExperienceBullet(line, domain);
+          if (compact) push(compact, kind);
+        }
+      }
     }
   }
 
@@ -2140,16 +2186,11 @@ function buildHolisticReason(
   skillCount: number,
   hitLabels: string[]
 ): string {
-  const pct = totalReqs > 0 ? Math.round((matchedReqs / totalReqs) * 100) : 0;
-  const skills = hitLabels.slice(0, 5).join(", ");
   if (matchedReqs === 0 && expCount === 0) {
-    return `Belum ditemukan bukti pengalaman/skill relevan untuk **${roleLabel}** pada CV ini.`;
+    return `Belum ditemukan bukti pengalaman atau skill yang selaras dengan posisi **${roleLabel}** pada dokumen pelamar ini.`;
   }
-  return (
-    `**${roleLabel}**: ${matchedReqs}/${totalReqs} persyaratan JD (${pct}%) + ` +
-    `${expCount} bukti pengalaman/proyek & ${skillCount} skill relevan` +
-    (skills ? ` (${skills}).` : ".")
-  );
+  const skillsText = hitLabels.length > 0 ? ` serta menguasai kompetensi ${hitLabels.slice(0, 3).join(", ")}` : "";
+  return `Menunjukkan kecocokan yang baik untuk posisi **${roleLabel}** dengan adanya bukti riil di bidang pengalaman terkait${skillsText}.`;
 }
 
 /** Skor holistik: cakupan JD + kedalaman bukti + volume pengalaman */
@@ -2183,7 +2224,7 @@ function computeHolisticCvScore(
 
     const expMatches = matching.filter((u) => u.kind === "pengalaman" || u.kind === "proyek");
     const skillMatches = matching.filter((u) => u.kind === "skill");
-    
+
     // PERBAIKAN PENGALI SKOR: Diperbesar agar skor lebih wajar (tidak terlalu kecil)
     const primaryMult = isPrimary ? 1.5 : 0.8;
 
@@ -2208,9 +2249,8 @@ function computeHolisticCvScore(
 
   const totalReqs = primaryReqs.length;
   const coverageRatio = totalReqs > 0 ? matchedReqs / totalReqs : hitLabels.length > 0 ? 0.6 : 0;
-  
-  // PERBAIKAN POIN MAKSIMAL: Poin dinaikkan
-  const coveragePoints = coverageRatio * 50;
+  // NORMALISASI POIN: Total poin maksimal 100 secara alami (Coverage: 40, Depth: 45, Volume: 15)
+  const coveragePoints = coverageRatio * 40;
 
   const expUnits = units.filter(
     (u) =>
@@ -2218,14 +2258,14 @@ function computeHolisticCvScore(
       (bulletMatchesActiveDomain(u.text, domain) || signalHitInText(u.text, domain))
   );
   const skillUnits = units.filter((u) => u.kind === "skill");
-  
-  // PERBAIKAN BONUS VOLUME: Poin dinaikkan
-  const volumeBonus = Math.min(30, expUnits.length * 5.0 + Math.min(10, skillUnits.length) * 2.5);
+
+  // Normalisasi bonus volume (maksimal 15 poin)
+  const volumeBonus = Math.min(15, expUnits.length * 2.5 + Math.min(10, skillUnits.length) * 1.25);
 
   const maxDepth = allSignals.reduce((s, sig) => s + sig.w * 1.15, 0);
-  
-  // PERBAIKAN NORMALISASI DEPTH: Poin dinaikkan
-  const depthNormalized = maxDepth > 0 ? (depthPoints / maxDepth) * 60 : 0;
+
+  // Normalisasi kedalaman (maksimal 45 poin)
+  const depthNormalized = maxDepth > 0 ? (depthPoints / maxDepth) * 45 : 0;
 
   const score = Math.round(coveragePoints + depthNormalized + volumeBonus);
 
@@ -2237,6 +2277,10 @@ function computeHolisticCvScore(
     if (seenQ.has(k)) continue;
     const display = prepareEvidenceForDisplay(q.text);
     if (!display || isIncompleteFragment(display.replace(/^(?:skill|pengalaman|proyek):\s*/i, ""))) {
+      continue;
+    }
+    const cleanContent = display.replace(/^(?:skill|pengalaman|proyek):\s*/i, "").trim();
+    if (isExperienceHeaderLine(cleanContent)) {
       continue;
     }
     seenQ.add(k);
@@ -2324,6 +2368,7 @@ export function rankCandidates(
         score: scored.score,
         quotes: scored.quotes,
         reason: scored.reason,
+        cvBody: seg.text,
         depthMeta: scored.depthMeta,
       };
     })
@@ -2450,8 +2495,8 @@ export function buildQueryUserAddon(
   const criteriaNote =
     criteria && kind === "top_n"
       ? `\n\n[Instruksi penting: HR sudah memilih kriteria lowongan **${criteria.title}** (${criteria.department}). ` +
-        `Pertanyaan seperti "posisi ini", "di posisi tersebut", atau "paling cocok" merujuk ke kriteria ini. ` +
-        `Evaluasi semua CV terhadap persyaratan JD **${criteria.title}**, meskipun pertanyaan tidak menyebut nama role secara eksplisit.]`
+      `Pertanyaan seperti "posisi ini", "di posisi tersebut", atau "paling cocok" merujuk ke kriteria ini. ` +
+      `Evaluasi semua CV terhadap persyaratan JD **${criteria.title}**, meskipun pertanyaan tidak menyebut nama role secara eksplisit.]`
       : "";
 
   if (kind === "list_names") {
@@ -2476,11 +2521,121 @@ export function buildQueryUserAddon(
   return "";
 }
 
-function formatCandidateBlockCompact(r: RankedCandidate, index: number, roleLabel: string): string {
-  const evidence = filterQuotesByRoleRelevance(
+function findCvSnippet(cvBody: string | undefined, queryText: string): string {
+  if (!cvBody) return "";
+  const normalizedCv = cvBody.replace(/\s+/g, " ");
+
+  const cleanQuery = queryText.replace(/^(?:pengalaman|skill|proyek):\s*/i, "").trim();
+
+  const idx = normalizedCv.toLowerCase().indexOf(cleanQuery.toLowerCase());
+  if (idx !== -1) {
+    const start = Math.max(0, idx - 150);
+    const end = Math.min(normalizedCv.length, idx + cleanQuery.length + 150);
+    let snippet = normalizedCv.slice(start, end).trim();
+    if (start > 0) snippet = "..." + snippet;
+    if (end < normalizedCv.length) snippet = snippet + "...";
+    return snippet;
+  }
+
+  const sentences = cvBody.split(/[.\n]+/).map((s) => s.trim()).filter((s) => s.length > 10);
+  let bestSent = "";
+  let maxOverlap = 0;
+
+  const queryWords = new Set(cleanQuery.toLowerCase().split(/\s+/).filter(w => w.length > 3));
+  if (queryWords.size === 0) return cvBody.slice(0, 300) + "...";
+
+  for (const sent of sentences) {
+    const sentWords = sent.toLowerCase().split(/\s+/);
+    let overlap = 0;
+    for (const w of sentWords) {
+      if (queryWords.has(w)) overlap++;
+    }
+    if (overlap > maxOverlap) {
+      maxOverlap = overlap;
+      bestSent = sent;
+    }
+  }
+
+  if (bestSent && maxOverlap > 0) {
+    const idx2 = normalizedCv.toLowerCase().indexOf(bestSent.toLowerCase());
+    if (idx2 !== -1) {
+      const start = Math.max(0, idx2 - 100);
+      const end = Math.min(normalizedCv.length, idx2 + bestSent.length + 100);
+      let snippet = normalizedCv.slice(start, end).trim();
+      if (start > 0) snippet = "..." + snippet;
+      if (end < normalizedCv.length) snippet = snippet + "...";
+      return snippet;
+    }
+    return bestSent;
+  }
+
+  return cvBody.slice(0, 300).trim() + "...";
+}
+
+function formatCandidateEvidence(r: RankedCandidate, roleLabel: string): string[] {
+  const filtered = filterQuotesByRoleRelevance(
     dedupeQuotes(r.quotes.filter((q) => q && !isEvidenceFluff(q))),
     roleLabel
-  ).slice(0, 2);
+  );
+
+  const expItems: string[] = [];
+  const skillItems: string[] = [];
+
+  for (const item of filtered) {
+    if (item.startsWith("Skill:")) {
+      const s = item.replace(/^skill:\s*/i, "").trim();
+      if (s) skillItems.push(s);
+    } else if (item.startsWith("Pengalaman:") || item.startsWith("Proyek:")) {
+      const e = item.replace(/^(?:pengalaman|proyek):\s*/i, "").trim();
+      if (e) expItems.push(e);
+    } else {
+      expItems.push(item);
+    }
+  }
+
+  const uniqueExp = Array.from(new Set(expItems));
+  const uniqueSkills = Array.from(new Set(skillItems));
+
+  const finalBullets: string[] = [];
+  let citationIndex = 1;
+
+  const formatItemWithCitation = (item: string) => {
+    const snippet = findCvSnippet(r.cvBody, item);
+    const cleanSnippet = snippet.replace(/[|"]/g, " ");
+    const titleAttr = `${r.filename}|${cleanSnippet}`;
+    const citation = ` [${citationIndex}](#citation-${r.name.replace(/\s+/g, "-")}-${citationIndex} "${titleAttr}")`;
+    citationIndex++;
+    return `${item}${citation}`;
+  };
+
+  const joinItems = (items: string[], conj = "serta") => {
+    if (items.length === 0) return "";
+    const formatted = items.map(formatItemWithCitation);
+    if (formatted.length === 1) return formatted[0];
+    if (formatted.length === 2) return `${formatted[0]} ${conj} ${formatted[1]}`;
+    return `${formatted.slice(0, -1).join(", ")}, ${conj} ${formatted[formatted.length - 1]}`;
+  };
+
+  if (uniqueExp.length > 0 && uniqueSkills.length > 0) {
+    const combinedExp = joinItems(uniqueExp, "serta");
+    const combinedSkill = joinItems(uniqueSkills, "dan");
+    finalBullets.push(`**Pengalaman:** ${combinedExp}`);
+    finalBullets.push(`**Skill:** ${combinedSkill}`);
+  } else if (uniqueExp.length > 0) {
+    uniqueExp.slice(0, 2).forEach((exp) => {
+      finalBullets.push(`**Pengalaman:** ${formatItemWithCitation(exp)}`);
+    });
+  } else if (uniqueSkills.length > 0) {
+    uniqueSkills.slice(0, 2).forEach((skill) => {
+      finalBullets.push(`**Skill:** ${formatItemWithCitation(skill)}`);
+    });
+  }
+
+  return finalBullets;
+}
+
+function formatCandidateBlockCompact(r: RankedCandidate, index: number, roleLabel: string): string {
+  const evidence = formatCandidateEvidence(r, roleLabel);
   let md = `### ${index}. ${r.name}\n`;
   md += `- **Skor:** ${r.score}/100\n`;
   if (evidence.length > 0) {
@@ -2573,7 +2728,7 @@ export function buildCvRankingHint(
   if (ranked.length === 0) return "";
 
   const role = resolveScreeningRole(query, activeCriteria, context);
-  
+
   const n = topN ?? 5;
   const mentioned = candidatesMentionedInQuery(query, ranked);
   const explicitOnly = isExplicitNamedComparison(query, mentioned.length);
@@ -2599,7 +2754,7 @@ export function buildCvRankingHint(
   hint += `- Posisi / kriteria aktif: **${role.roleLabel}**.\n`;
 
   if (explicitOnly) {
-  hint +=
+    hint +=
       `- HR **hanya** membandingkan: **${mentioned.map((m) => m.name).join(", ")}**. ` +
       `Jawab **hanya** untuk ${mentioned.length} orang ini.\n`;
     hint += `- **Dilarang** menyebut kandidat lain, ## Kandidat lain, atau file CV lain.\n`;
@@ -2628,47 +2783,44 @@ FORMAT WAJIB:
 
 ## Rekomendasi utama
 ### 1. [Nama dari daftar peringkat] (CV: file.pdf)
-- **Skor kecocokan JD:** XX/100
-- **Bukti eksplisit di CV:** (2–4 bullet: Skill: … / Pengalaman: … / Proyek: … — kutipan utuh dari CV, tidak dipotong)
-- **Tidak tercantum / perlu klarifikasi:** (gap terhadap JD)
-- **Alasan skor:** (1 kalimat ringkas)
-- **Rekomendasi:** (Layak wawancara / perlu klarifikasi / tidak direkomendasikan)
+- **Skor Kecocokan JD:** XX/100
+- **Rangkuman Rekomendasi:** (alasan profesional kesesuaian profil kandidat)
+- **Bukti Kompetensi & Pengalaman (Eksplisit):**
+  - **Pengalaman:** (gabungan tugas/pengalaman terkait)
+  - **Skill:** (gabungan keahlian/sertifikasi terkait)
+- **Kesenjangan Kualifikasi (Gap Analysis):** (kualifikasi JD yang belum terbukti kuat di CV)
+- **Rekomendasi Tindak Lanjut:** (saran langkah rekrutmen berikutnya)
 
 ## Kandidat lain
 - **[Nama]** (file.pdf): satu kalimat ringkas per orang
 `;
 
 function buildRecommendationLabel(score: number): string {
-  if (score >= 70) return "Layak dilanjutkan ke tahap wawancara teknis.";
-  if (score >= 40) return "Pertimbangkan dengan klarifikasi portofolio atau tes skill.";
-  return "Belum memenuhi persyaratan utama; tidak direkomendasikan untuk posisi ini.";
+  if (score >= 70) return "Sangat disarankan untuk dilanjutkan ke tahap wawancara kompetensi teknis.";
+  if (score >= 40) return "Dapat dipertimbangkan untuk tahap seleksi berikutnya dengan klarifikasi portofolio/uji kompetensi.";
+  return "Kualifikasi saat ini belum sesuai dengan persyaratan minimal posisi terkait.";
 }
 
 function buildGapNote(score: number, roleLabel: string): string {
   if (score >= 70) {
-    return "Beberapa nice-to-have JD mungkin belum tercantum; verifikasi saat wawancara.";
+    return `Kualifikasi pelengkap (nice-to-have) dari kriteria **${roleLabel}** belum tertera sepenuhnya secara eksplisit; disarankan untuk diverifikasi pada saat sesi wawancara.`;
   }
   if (score >= 40) {
-    return `Pengalaman mendalam atau stack utama **${roleLabel}** belum terbukti kuat di CV.`;
+    return `Terdapat kesenjangan (*gap*) pada kedalaman pengalaman atau penguasaan spesifik kriteria **${roleLabel}** yang perlu diklarifikasi lebih lanjut.`;
   }
-  return `Persyaratan utama **${roleLabel}** belum terlihat jelas pada dokumen CV ini.`;
+  return `CV belum menunjukkan pemenuhan terhadap kriteria utama dan kompetensi inti yang disyaratkan untuk posisi **${roleLabel}**.`;
 }
 
 function buildShortAlasan(r: RankedCandidate, roleLabel: string, bullets: string[]): string {
-  if (r.score < 12) return `Belum ada bukti kuat untuk **${roleLabel}**.`;
-  if (r.reason && (r.reason.includes("persyaratan JD") || r.reason.includes("bukti pengalaman"))) {
-    return r.reason;
+  if (r.score < 12) return `Kualifikasi yang tercantum di CV belum memadai untuk kebutuhan posisi **${roleLabel}**.`;
+  const name = r.name;
+  if (r.score >= 70) {
+    return `**${name}** merupakan kandidat yang sangat kuat untuk posisi **${roleLabel}** karena memiliki bukti pengalaman kerja dan kompetensi teknis yang selaras dengan kriteria utama.`;
   }
-  if (r.depthMeta) {
-    const { matchedReqs, expCount, skillCount } = r.depthMeta;
-    return (
-      `Skor berdasarkan evaluasi holistik CV: ${matchedReqs} persyaratan JD terpenuhi, ` +
-      `${expCount} pengalaman/proyek relevan, ${skillCount} skill sesuai **${roleLabel}**.`
-    );
+  if (r.score >= 40) {
+    return `**${name}** menunjukkan potensi kecocokan menengah untuk posisi **${roleLabel}**, dengan sebagian besar persyaratan dasar telah terpenuhi di CV.`;
   }
-  if (bullets.length >= 2) return `CV relevan untuk **${roleLabel}** (${bullets.length} poin bukti di atas).`;
-  if (bullets.length === 1) return `Ada indikasi relevansi untuk **${roleLabel}**.`;
-  return `Skor berdasarkan kedalaman bukti CV terhadap **${roleLabel}**.`;
+  return `**${name}** memiliki beberapa indikasi relevansi awal untuk posisi **${roleLabel}**, namun memerlukan klarifikasi lebih lanjut terkait detail tugasnya.`;
 }
 
 function formatCandidateBlock(
@@ -2676,32 +2828,29 @@ function formatCandidateBlock(
   index: number,
   roleLabel: string
 ): string {
-  const evidence = filterQuotesByRoleRelevance(
-    dedupeQuotes(r.quotes.filter((q) => q && !isEvidenceFluff(q))),
-    roleLabel
-  ).slice(0, 4);
+  const evidence = formatCandidateEvidence(r, roleLabel);
 
   let md = `### ${index}. ${r.name} (CV: ${r.filename})\n`;
-  md += `- **Skor kecocokan JD:** ${r.score}/100\n`;
-  md += `- **Bukti eksplisit di CV:**\n`;
+  md += `- **Skor Kecocokan JD:** ${r.score}/100\n`;
+  md += `- **Rangkuman Rekomendasi:** ${buildShortAlasan(r, roleLabel, evidence)}\n`;
+  md += `- **Bukti Kompetensi & Pengalaman (Eksplisit):**\n`;
   if (evidence.length > 0) {
     for (const q of evidence) md += `  - ${q}\n`;
   } else if (r.score >= 12 && r.reason.includes("melalui:")) {
     const skills = r.reason.replace(/^.*melalui:\s*/i, "").replace(/\.$/, "");
-    md += `  - Skill terkait: ${skills}\n`;
+    md += `  - **Skill Relevan:** ${skills}\n`;
   } else {
-    md += `  - Belum ada skill/pengalaman relevan yang terbaca jelas untuk **${roleLabel}**.\n`;
+    md += `  - Belum ada bukti keahlian atau rincian tugas yang terdokumentasi jelas di CV untuk kriteria **${roleLabel}**.\n`;
   }
-  md += `- **Tidak tercantum / perlu klarifikasi:** ${buildGapNote(r.score, roleLabel)}\n`;
-  md += `- **Alasan skor:** ${buildShortAlasan(r, roleLabel, evidence)}\n`;
-  md += `- **Rekomendasi:** ${buildRecommendationLabel(r.score)}\n\n`;
+  md += `- **Kesenjangan Kualifikasi (Gap Analysis):** ${buildGapNote(r.score, roleLabel)}\n`;
+  md += `- **Rekomendasi Tindak Lanjut:** ${buildRecommendationLabel(r.score)}\n\n`;
   return md;
 }
 
 function dedupeQuotes(quotes: string[]): string[] {
   const trimmed = quotes
     .map((q) => prepareEvidenceForDisplay(q))
-    .filter((q) => q && !isLowValueEvidence(q) && !isIncompleteFragment(q.replace(/^(?:skill|pengalaman|proyek):\s*/i, "")));
+    .filter((q) => q && !isLowValueEvidence(q) && !isIncompleteFragment(q.replace(/^(?:skill|pengalaman|proyek):\s*/i, "")) && !isExperienceHeaderLine(q.replace(/^(?:skill|pengalaman|proyek):\s*/i, "")));
 
   const out: string[] = [];
   for (const q of trimmed) {
@@ -2813,7 +2962,7 @@ function filterQuotesByRoleRelevance(quotes: string[], roleLabel: string): strin
     );
     if (core.length > 0) return core.slice(0, 2);
   }
-  
+
   return quotes.slice(0, 2);
 }
 
@@ -2890,8 +3039,8 @@ export function buildTopNRecommendationsMarkdown(
         r.score < MIN_SCORE_ABSOLUTE
           ? `tidak ditemukan bukti skill/pengalaman relevan untuk **${role.roleLabel}**`
           : r.score < MIN_SCORE_FOR_RECOMMENDATION
-          ? `skor ${r.score}/100 — belum memenuhi ambang rekomendasi untuk posisi ini`
-          : `skor ${r.score}/100 — di bawah kandidat rekomendasi utama`;
+            ? `skor ${r.score}/100 — belum memenuhi ambang rekomendasi untuk posisi ini`
+            : `skor ${r.score}/100 — di bawah kandidat rekomendasi utama`;
       md += `- **${r.name}** (CV: ${r.filename}): ${note}.\n`;
     }
     md += "\n";
@@ -2915,7 +3064,7 @@ export function applyRankingToAnswer(
   const ranked = rankCandidates(context, query, activeCriteria);
   const mentioned = candidatesMentionedInQuery(query, ranked);
   const explicitOnly = isExplicitNamedComparison(query, mentioned.length);
-  
+
   const n = explicitOnly ? mentioned.length : mentioned.length >= 2 ? mentioned.length : askedN ?? 5;
 
   const structured = buildTopNRecommendationsMarkdown(context, query, n, activeCriteria);
@@ -3025,7 +3174,7 @@ export function extractNameFromFilename(filename: string): string | null {
   if (looksLikePersonName(titled)) return titled;
 
   const tokens = cleaned.split(/\s+/).filter((t) => /^[a-z\u00C0-\u024F.'-]{2,}$/i.test(t));
-  
+
   if (tokens.length >= 1 && tokens.length <= 5) {
     const joined = titleCaseName(tokens.join(" "));
     if (looksLikePersonName(joined)) return joined;

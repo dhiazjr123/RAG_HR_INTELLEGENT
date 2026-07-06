@@ -170,8 +170,8 @@ export function JdCriteriaManager() {
   }, []);
 
   return (
-    <div className="admin-page-bg min-h-full">
-      <div className="p-6 md:p-8 max-w-6xl mx-auto space-y-6">
+    <div className="bg-white min-h-full">
+      <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
           <div>
@@ -179,12 +179,12 @@ export function JdCriteriaManager() {
               <FileText className="h-5 w-5" />
               <span className="text-xs font-semibold uppercase tracking-wider">Admin PT Sosro</span>
             </div>
-            <h1 className="text-2xl md:text-3xl font-semibold">Kelola JD & Kriteria</h1>
-            <p className="text-sm text-muted-foreground mt-1 max-w-xl">
+            <h1 className="text-2xl md:text-3xl font-extrabold text-slate-800 tracking-tight">Kelola JD & Kriteria</h1>
+            <p className="text-sm text-slate-500 mt-1 max-w-xl font-medium">
               Perubahan langsung tersinkron ke panel kriteria di AI Assistant HR.
             </p>
             {updatedAt && (
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-xs text-slate-400 mt-1 font-medium">
                 Terakhir diperbarui: {new Date(updatedAt).toLocaleString("id-ID")}
               </p>
             )}
@@ -195,12 +195,12 @@ export function JdCriteriaManager() {
               size="sm"
               onClick={refresh}
               disabled={loading}
-              className="admin-action-btn gap-2"
+              className="admin-action-btn gap-2 rounded-full"
             >
               <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
               Refresh
             </Button>
-            <Button size="sm" onClick={openCreate} className="admin-action-btn gap-2 btn-figma border-0">
+            <Button size="sm" onClick={openCreate} className="admin-action-btn gap-2 btn-figma border-0 rounded-full">
               <Plus className="h-4 w-4" />
               Tambah JD
             </Button>
@@ -233,36 +233,51 @@ export function JdCriteriaManager() {
         )}
 
         {/* Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <StatCard icon={Briefcase} label="Total Posisi" value={stats.total} />
-          <StatCard icon={Building2} label="Departemen" value={stats.departments} />
-          <StatCard icon={FileText} label="Dokumen Resmi U&KJ" value={stats.official} />
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <StatCard
+            icon={Briefcase}
+            label="Total Posisi"
+            value={stats.total}
+            gradient="linear-gradient(135deg, #70a1ff 0%, #5352ed 100%)"
+          />
+          <StatCard
+            icon={Building2}
+            label="Departemen"
+            value={stats.departments}
+            gradient="linear-gradient(135deg, #ffb347 0%, #ffcc33 100%)"
+          />
+          <StatCard
+            icon={FileText}
+            label="Dokumen Resmi U&KJ"
+            value={stats.official}
+            gradient="linear-gradient(135deg, #2ed573 0%, #1abc9c 100%)"
+          />
         </div>
 
         {/* Search & filter toolbar */}
-        <div className="space-y-3 rounded-xl border border-border bg-card/40 p-4 backdrop-blur-sm">
+        <div className="space-y-4 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
           <div className="flex flex-col sm:flex-row gap-3">
-            <div className="relative flex-1 admin-search-focus rounded-lg border border-border bg-background transition-all">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <div className="relative flex-1 rounded-xl border border-slate-200 bg-slate-50/50 transition-all focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
               <Input
                 id="admin-jd-search"
                 placeholder="Cari posisi, departemen, ID, lokasi..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="pl-9 pr-9 border-0 bg-transparent focus-visible:ring-0"
+                className="pl-9 pr-9 border-0 bg-transparent focus-visible:ring-0 text-slate-800 text-sm"
               />
               {search && (
                 <button
                   type="button"
                   onClick={() => setSearch("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
                   aria-label="Hapus pencarian"
                 >
                   <X className="h-4 w-4" />
                 </button>
               )}
             </div>
-            <div className="text-xs text-muted-foreground flex items-center shrink-0 px-1">
+            <div className="text-xs text-slate-400 font-semibold flex items-center shrink-0 px-1 uppercase tracking-wider">
               {filtered.length} / {criteria.length} posisi
             </div>
           </div>
@@ -274,17 +289,17 @@ export function JdCriteriaManager() {
                 type="button"
                 onClick={() => setDeptFilter(d)}
                 className={cn(
-                  "text-xs px-3 py-1.5 rounded-full border transition-all duration-200 admin-action-btn",
+                  "text-xs px-3.5 py-1.5 rounded-full border transition-all duration-200",
                   deptFilter === d
-                    ? "admin-dept-pill-active font-medium"
-                    : "border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                    ? "bg-gradient-to-r from-[#0ea5e9] to-[#0d9488] text-white border-0 font-semibold shadow-md shadow-[#0ea5e9]/10"
+                    : "border-slate-100 text-slate-500 bg-slate-50 hover:bg-slate-100 hover:text-slate-800"
                 )}
               >
                 {d === "all" ? "Semua departemen" : d}
               </button>
             ))}
           </div>
-          <p className="text-[11px] text-muted-foreground">Tip: tekan Ctrl+K untuk fokus ke pencarian</p>
+          <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Tip: tekan Ctrl+K untuk fokus ke pencarian</p>
         </div>
 
         {/* List */}
@@ -503,19 +518,25 @@ function StatCard({
   icon: Icon,
   label,
   value,
+  gradient,
 }: {
   icon: typeof Briefcase;
   label: string;
   value: number;
+  gradient: string;
 }) {
   return (
-    <Card className="admin-stat-card p-4 flex items-center gap-4 py-4">
-      <div className="h-11 w-11 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-        <Icon className="h-5 w-5 text-primary" />
+    <Card
+      className="border-0 p-4 py-5 flex items-center gap-4 text-white relative overflow-hidden rounded-2xl shadow-md transition-all duration-300 hover:scale-102 hover:shadow-lg"
+      style={{ background: gradient }}
+    >
+      <div className="absolute inset-0 opacity-10 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-transparent to-transparent pointer-events-none" />
+      <div className="h-10 w-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+        <Icon className="h-5 w-5 text-white" />
       </div>
       <div>
-        <p className="text-2xl font-semibold leading-none">{value}</p>
-        <p className="text-xs text-muted-foreground mt-1">{label}</p>
+        <p className="text-2xl font-extrabold leading-none">{value}</p>
+        <p className="text-xs text-white/80 mt-1.5 font-medium">{label}</p>
       </div>
     </Card>
   );

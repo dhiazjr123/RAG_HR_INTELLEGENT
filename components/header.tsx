@@ -2,9 +2,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
+import Link from "next/link";
 import Image from "next/image";
-import { LogOut, HelpCircle, User2, Settings } from "lucide-react";
+import { LogOut, HelpCircle, User2, Settings, Search, Bell, Bot, BarChart3, FileText } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,7 @@ import { useLanguage } from "@/components/language-provider";
 
 export function Header() {
   const router = useRouter();
+  const pathname = usePathname();
   const { t } = useLanguage();
   const supabase = createClient();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -40,78 +42,139 @@ export function Header() {
     return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
 
+  const navItems = [
+    { href: "/", label: t("sidebar.overview"), icon: BarChart3 },
+    { href: "/documents", label: t("sidebar.documents"), icon: FileText },
+    { href: "/assistant-workspace", label: t("sidebar.aiAssistant"), icon: Bot },
+  ];
+
   return (
-    <header className="border-b border-border bg-card/70 glass soft-shadow sticky top-0 z-[80]">
-      <div className="flex h-16 items-center justify-between px-6">
-        <div className="flex items-center">
-          <Image
-            src="/RAG logo.png"
-            alt="RAG"
-            width={70}
-            height={70}
-            className="h-25 w-auto"
-            priority
-          />
-        </div>
+    <header className="sticky top-0 z-[80] w-full px-6 py-4 bg-white/95 backdrop-blur-md border-b border-slate-100">
+      <div className="max-w-7xl mx-auto flex h-12 items-center justify-between gap-4">
+        
+        {/* LEFT: Logo Card */}
+        <Link href="/" className="flex items-center">
+          <div className="bg-white border border-slate-100 shadow-sm rounded-xl px-4 py-1.5 flex items-center gap-2 hover:bg-slate-50 transition-colors">
+            <Image
+              src="/logo ISRE.png"
+              alt="ISRE"
+              width={140}
+              height={42}
+              className="h-[42px] w-auto object-contain"
+              priority
+            />
+            <div className="h-6 w-[1px] bg-slate-200" />
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest leading-none">
+              HR Portal
+            </span>
+          </div>
+        </Link>
 
-        <div className="flex items-center gap-4">
-          <Badge variant="secondary" className="text-xs">{t("header.enterprise")}</Badge>
+        {/* CENTER: Navigation Pill Capsule */}
+        <nav className="hidden md:flex bg-slate-50 border border-slate-100/80 shadow-inner rounded-full p-1 items-center gap-1">
+          {navItems.map((item) => {
+            const active = pathname === item.href;
+            const Icon = item.icon;
+            return (
+              <Link key={item.href} href={item.href}>
+                <button
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-semibold transition-all duration-300",
+                    active
+                      ? "bg-gradient-to-r from-[#0ea5e9] to-[#0d9488] text-white shadow-md shadow-[#0ea5e9]/20 scale-105"
+                      : "text-slate-600 hover:text-slate-900 hover:bg-white/80"
+                  )}
+                >
+                  <Icon className={cn("h-3.5 w-3.5", active ? "text-white" : "text-slate-500")} />
+                  <span>{item.label}</span>
+                </button>
+              </Link>
+            );
+          })}
+        </nav>
 
+        {/* RIGHT: Search, Notifications, Avatar */}
+        <div className="flex items-center gap-3">
+          
+          {/* Search Box Capsule */}
+          <div className="relative max-w-xs hidden sm:block">
+            <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search..."
+              className="w-40 pl-9 pr-4 py-1.5 bg-slate-50/80 border border-slate-100 rounded-full text-xs transition-all duration-300 focus:outline-none focus:w-48 focus:bg-white focus:ring-1 focus:ring-[#0ea5e9] focus:border-[#0ea5e9] placeholder-slate-400 text-slate-800"
+            />
+          </div>
+
+          {/* Notification bell with red dot */}
+          <button className="relative w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 transition-colors text-slate-600">
+            <Bell className="h-4 w-4" />
+            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-rose-500 border border-white" />
+          </button>
+
+          {/* Divider */}
+          <div className="h-6 w-[1px] bg-slate-200 hidden sm:block" />
+
+          {/* Logout & Profile Menu */}
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" className="ring-ambient"><HelpCircle className="h-4 w-4" /></Button>
-            <Button 
-              variant="default" 
-              size="sm" 
+            <Button
+              variant="ghost"
+              size="sm"
               className={cn(
-                "ring-ambient btn-gradient transition-all duration-300 ease-in-out",
-                "hover:scale-105 hover:shadow-lg active:scale-95",
+                "ring-ambient text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-full transition-all duration-300",
                 isLoggingOut && "opacity-70 cursor-wait"
-              )} 
+              )}
               onClick={onLogout}
               disabled={isLoggingOut}
             >
               <LogOut className={cn(
-                "h-4 w-4 mr-2 transition-transform duration-300",
+                "h-4 w-4 mr-1",
                 isLoggingOut && "animate-spin"
-              )} /> 
-              {isLoggingOut ? t("header.loggingOut") : t("header.logout")}
+              )} />
+              <span className="hidden lg:inline text-xs font-semibold">
+                {isLoggingOut ? t("header.loggingOut") : t("header.logout")}
+              </span>
             </Button>
+
             <div className="relative" ref={menuRef}>
               <button
-                className="rounded-full focus:outline-none transition-all duration-300 ease-in-out hover:scale-110 active:scale-95 ring-2 ring-transparent hover:ring-primary/30"
+                className="rounded-full focus:outline-none transition-all duration-300 ease-in-out hover:scale-105 active:scale-95 ring-2 ring-transparent hover:ring-[#0ea5e9]/30"
                 aria-haspopup="menu"
                 aria-expanded={menuOpen}
                 onClick={() => setMenuOpen((v) => !v)}
               >
                 <Avatar className={cn(
-                  "h-8 w-8 transition-all duration-300",
-                  menuOpen && "ring-2 ring-primary scale-110"
+                  "h-8 w-8 border border-slate-200 transition-all duration-300",
+                  menuOpen && "ring-2 ring-[#0ea5e9] scale-105"
                 )}>
                   <AvatarImage src="/1.jpg" />
                   <AvatarFallback>JD</AvatarFallback>
                 </Avatar>
               </button>
+              
               {menuOpen && (
-                <div className="absolute right-0 mt-2 w-40 bg-popover border border-border rounded-md shadow-md z-[90] animate-in fade-in slide-in-from-top-2 duration-200">
+                <div className="absolute right-0 mt-2 w-40 bg-white border border-slate-100 rounded-xl shadow-lg z-[90] p-1.5 animate-in fade-in slide-in-from-top-2 duration-200">
                   <button
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm transition-all duration-300 ease-in-out hover:bg-muted/60 hover:translate-x-1 hover:scale-105 active:scale-95 group"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 rounded-lg transition-all duration-300 hover:bg-slate-50 hover:text-slate-900 group"
                     onClick={() => { setMenuOpen(false); router.push("/profile"); }}
                   >
-                    <User2 className="h-4 w-4 transition-transform duration-300 group-hover:scale-110" /> 
+                    <User2 className="h-3.5 w-3.5 text-slate-500 transition-transform duration-300 group-hover:scale-110" />
                     <span>{t("header.profile")}</span>
                   </button>
                   <button
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm transition-all duration-300 ease-in-out hover:bg-muted/60 hover:translate-x-1 hover:scale-105 active:scale-95 group"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 rounded-lg transition-all duration-300 hover:bg-slate-50 hover:text-slate-900 group"
                     onClick={() => { setMenuOpen(false); router.push("/setting"); }}
                   >
-                    <Settings className="h-4 w-4 transition-transform duration-300 group-hover:rotate-90" /> 
+                    <Settings className="h-3.5 w-3.5 text-slate-500 transition-transform duration-300 group-hover:rotate-45" />
                     <span>{t("header.setting")}</span>
                   </button>
                 </div>
               )}
             </div>
           </div>
+
         </div>
+
       </div>
     </header>
   );

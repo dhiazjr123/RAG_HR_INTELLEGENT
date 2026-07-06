@@ -1,20 +1,26 @@
 // app/register/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import Image from "next/image";
 import { AuthIllustration } from "@/components/auth-illustration";
 import { useLanguage } from "@/components/language-provider";
+import { LoginRoleSelector } from "@/components/login-role-selector";
+import { type LoginIntent } from "@/lib/auth/roles";
 
-export default function RegisterPage() {
+function RegisterContent() {
   const supabase = createClient();
   const router = useRouter();
   const params = useSearchParams();
   const { t } = useLanguage();
   const next = params.get("next") || "/";
+  const roleParam = params.get("role");
+  const initialRole: LoginIntent = roleParam === "admin" ? "admin" : roleParam === "pelamar" ? "pelamar" : "hr";
 
+  const [registerRole, setRegisterRole] = useState<LoginIntent>(initialRole);
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -59,13 +65,11 @@ export default function RegisterPage() {
 
     setLoading(true);
     try {
-      // PENTING: pakai client-side signUp agar email verifikasi terkirim
       const { error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          data: { username, full_name: username, name: username },
-          // pastikan URL ini ada di Auth → URL Configuration → Redirect URLs
+          data: { username, full_name: username, name: username, app_role: registerRole },
           emailRedirectTo: `${location.origin}/auth/callback?type=signup&next=${encodeURIComponent(
             next
           )}`,
@@ -106,13 +110,13 @@ export default function RegisterPage() {
   };
 
   return (
-    <main className="min-h-screen grid grid-cols-1 md:grid-cols-2 bg-figma-auth text-white">
-      <AuthIllustration />
-
-      {/* kanan: form */}
+    <main className="min-h-screen grid grid-cols-1 md:grid-cols-2 bg-figma-auth text-slate-800">
+      {/* kiri: form */}
       <div className="flex items-center justify-center p-8">
         <div className="w-full max-w-md">
-          <h1 className="text-3xl font-semibold text-center mb-8 text-white">{t("register.title")}</h1>
+          <h1 className="text-3xl font-extrabold text-center mb-8 text-slate-800 tracking-tight">{t("register.title")}</h1>
+
+          <LoginRoleSelector value={registerRole} onChange={setRegisterRole} isRegister />
 
           <form onSubmit={onSubmit} className="space-y-4" autoComplete="off">
             {/* ===== Autofill trap: biar Chrome isi di sini, bukan field kita ===== */}
@@ -193,10 +197,15 @@ export default function RegisterPage() {
                 <button
                   type="button"
                   onClick={() => setShowPw((s) => !s)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 focus:outline-none cursor-pointer"
+                  style={{ zIndex: 50 }}
                   aria-label="toggle password"
                 >
-                  {showPw ? "🙈" : "👁️"}
+                  {showPw ? (
+                    <EyeOff className="h-4 w-4" style={{ color: '#000000', stroke: '#000000' }} />
+                  ) : (
+                    <Eye className="h-4 w-4" style={{ color: '#000000', stroke: '#000000' }} />
+                  )}
                 </button>
               </div>
             </div>
@@ -225,10 +234,15 @@ export default function RegisterPage() {
                 <button
                   type="button"
                   onClick={() => setShowPw2((s) => !s)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 focus:outline-none cursor-pointer"
+                  style={{ zIndex: 50 }}
                   aria-label="toggle confirm password"
                 >
-                  {showPw2 ? "🙈" : "👁️"}
+                  {showPw2 ? (
+                    <EyeOff className="h-4 w-4" style={{ color: '#000000', stroke: '#000000' }} />
+                  ) : (
+                    <Eye className="h-4 w-4" style={{ color: '#000000', stroke: '#000000' }} />
+                  )}
                 </button>
               </div>
               {mismatch && (
@@ -287,10 +301,10 @@ export default function RegisterPage() {
             <button
               type="button"
               onClick={registerWithGoogle}
-              className="w-full rounded-md border border-border bg-background py-2 text-sm transition-all duration-300 ease-in-out hover:bg-muted/40 hover:scale-105 hover:shadow-md active:scale-95"
+              className="w-full rounded-md btn-figma py-2 text-sm font-medium transition-all duration-300 ease-in-out hover:scale-105 hover:shadow-lg active:scale-95"
             >
-              <span className="inline-flex items-center gap-2">
-                <Image src="/g.png" alt="Google" width={18} height={18} className="transition-transform duration-300 hover:rotate-12" />
+              <span className="inline-flex items-center gap-2 text-white">
+                <Image src="/g.png" alt="Google" width={18} height={18} className="transition-transform duration-300 hover:rotate-12 brightness-0" />
                 {t("register.google")}
               </span>
             </button>
@@ -307,6 +321,16 @@ export default function RegisterPage() {
           </form>
         </div>
       </div>
+
+      <AuthIllustration />
     </main>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-figma-auth flex items-center justify-center text-white text-sm">Loading...</div>}>
+      <RegisterContent />
+    </Suspense>
   );
 }

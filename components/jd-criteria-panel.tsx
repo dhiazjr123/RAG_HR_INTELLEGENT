@@ -50,7 +50,7 @@ export function JdCriteriaPanel({ selectedId, onSelect, criteriaList, onRefresh 
 
   return (
     <div className="flex flex-col h-full bg-card/30">
-      <div className="p-4 border-b border-border bg-card/60 shrink-0">
+      <div className="p-3 pb-2 border-b border-border bg-card/60 shrink-0">
         <div className="flex items-start gap-3">
           <div className="rounded-lg bg-primary/10 p-2.5">
             <Building2 className="h-5 w-5 text-primary" />
@@ -88,16 +88,16 @@ export function JdCriteriaPanel({ selectedId, onSelect, criteriaList, onRefresh 
           />
         </div>
 
-        <div className="mt-2 flex flex-wrap gap-1.5">
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
           {departments.map((d) => (
             <button
               key={d}
               type="button"
               onClick={() => setDeptFilter(d)}
-              className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+              className={`text-[11px] px-3.5 py-1.5 rounded-full border transition-all duration-200 ${
                 deptFilter === d
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-background border-border text-muted-foreground hover:bg-muted/50"
+                  ? "bg-gradient-to-r from-[#0ea5e9] to-[#0d9488] text-white border-0 font-semibold shadow-md shadow-[#0ea5e9]/10"
+                  : "border-slate-100 text-slate-500 bg-slate-50 hover:bg-slate-100 hover:text-slate-800"
               }`}
             >
               {d === "all" ? "Semua" : d}
@@ -119,24 +119,30 @@ export function JdCriteriaPanel({ selectedId, onSelect, criteriaList, onRefresh 
                     <button
                       type="button"
                       onClick={() => onSelect(c.id)}
-                      className={`w-full text-left px-3 py-3 transition-colors hover:bg-muted/40 ${
-                        active ? "bg-primary/10 border-l-2 border-l-primary" : "border-l-2 border-l-transparent"
+                      className={`w-full text-left px-4 py-3.5 transition-all duration-300 border-l-2 ${
+                        active
+                          ? "bg-slate-50 border-l-[#0ea5e9] shadow-inner"
+                          : "border-l-transparent hover:bg-slate-50/50"
                       }`}
                     >
-                      <div className="flex items-start justify-between gap-1">
+                      <div className="flex items-start justify-between gap-1.5">
                         <div className="min-w-0">
-                          <p className="text-sm font-medium leading-snug line-clamp-2">{c.title}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5 truncate">{c.department}</p>
+                          <p className={`text-xs font-semibold leading-snug line-clamp-2 transition-colors ${
+                            active ? "text-[#0ea5e9]" : "text-slate-700"
+                          }`}>{c.title}</p>
+                          <p className="text-[10px] text-slate-400 mt-1 font-medium truncate">{c.department}</p>
                         </div>
                         {active ? (
-                          <CheckCircle2 className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                          <CheckCircle2 className="h-4 w-4 text-[#0ea5e9] shrink-0 mt-0.5" />
                         ) : (
-                          <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0 mt-0.5" />
+                          <ChevronRight className="h-3.5 w-3.5 text-slate-300 shrink-0 mt-0.5" />
                         )}
                       </div>
-                      <Badge variant="outline" className="text-[10px] mt-1.5 h-5">
-                        {c.level}
-                      </Badge>
+                      {c.level && (
+                        <Badge variant="outline" className="text-[9px] mt-2 h-4 px-1.5 font-medium border-slate-200 bg-white text-slate-500">
+                          {c.level}
+                        </Badge>
+                      )}
                     </button>
                   </li>
                 );
@@ -167,8 +173,8 @@ function CriteriaDetail({ criteria }: { criteria: PartnerJobCriteria }) {
   return (
     <div className="space-y-4">
       <div>
-        <Badge className="mb-2">{criteria.department}</Badge>
-        <h3 className="text-lg font-semibold leading-tight">{criteria.title}</h3>
+        <Badge className="mb-2 bg-gradient-to-r from-[#0ea5e9] to-[#0d9488] border-0 text-white shadow-sm">{criteria.department}</Badge>
+        <h3 className="text-lg font-bold leading-tight text-slate-800">{criteria.title}</h3>
         <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1">
             <MapPin className="h-3 w-3" />

@@ -52,8 +52,8 @@ async function getCurrentUserId(): Promise<string | null> {
 
 // Helper untuk membuat key yang terikat ke userId
 function getStorageKey(baseKey: string, userId: string | null): string {
-  if (!userId) return baseKey; // fallback untuk guest/anonymous
-  return `${baseKey}_${userId}`;
+  // Share all documents globally to allow seamless HR screening of applicant uploads
+  return baseKey;
 }
 
 type DocMeta = Omit<DocRow, "file">;
@@ -94,8 +94,7 @@ const IDB_VERSION = 1;
 const STORE_FILES = "files";
 
 function getIDBName(userId: string | null): string {
-  if (!userId) return "rag-docs-db-guest";
-  return `rag-docs-db-${userId}`;
+  return "rag-docs-db-shared";
 }
 
 function openDB(userId: string | null): Promise<IDBDatabase> {
@@ -462,10 +461,26 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
   };
 
   const removeDocument = (id: string) => {
+    const docToDelete = documents.find((d) => d.id === id);
     setDocuments((prev) => prev.filter((d) => d.id !== id));
     if (currentUserId) {
       idbDeleteFile(id, currentUserId).catch((e) => console.error("Gagal hapus file di IDB:", e));
       deleteIndexForDocument(id, currentUserId).catch((e) => console.error("Gagal hapus index RAG:", e));
+    }
+    if (docToDelete) {
+      try {
+        const subsStr = localStorage.getItem("rag_applicant_submissions");
+        if (subsStr) {
+          let submissions = JSON.parse(subsStr);
+          if (Array.isArray(submissions)) {
+            submissions = submissions.filter((s: any) => s.cvFileName !== docToDelete.name);
+            localStorage.setItem("rag_applicant_submissions", JSON.stringify(submissions));
+            window.dispatchEvent(new Event("storage"));
+          }
+        }
+      } catch (e) {
+        console.error("Gagal menghapus submission dari localStorage:", e);
+      }
     }
   };
 

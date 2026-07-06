@@ -301,8 +301,7 @@ const STORE_VECS = "vecs"; // key: chunkId value: Float32Array (as Blob)
 const STORE_META = "meta";   // key: docId  value: any (document-level metadata)
 
 function getIDBName(userId: string | null): string {
-  if (!userId) return "rag-idx-db-guest";
-  return `rag-idx-db-${userId}`;
+  return "rag-idx-db-shared";
 }
 
 function openDB(userId: string | null): Promise<IDBDatabase> {
@@ -423,19 +422,14 @@ export async function retrieveTopK(query: string, topK = 6, opts?: { docId?: str
   const embedder = await loadEmbedder();
   const [qVec] = await embedder.embed([query]);
 
-  // Iterate all vectors
+  // Load chunks (filtered by docId if specified)
   const db = await openDB(opts?.userId ?? null);
   const chunks: Chunk[] = [];
-  const vecs: Float32Array[] = [];
   await new Promise<void>((resolve, reject) => {
-    let remaining = 2;
-    const done = () => { if (--remaining === 0) resolve(); };
-
-    // Load chunks
-    const tx1 = db.transaction(STORE_CHUNKS, "readonly");
-    const os1 = tx1.objectStore(STORE_CHUNKS);
-    const req1 = os1.openCursor();
-    req1.onsuccess = (e: any) => {
+    const tx = db.transaction(STORE_CHUNKS, "readonly");
+    const os = tx.objectStore(STORE_CHUNKS);
+    const req = os.openCursor();
+    req.onsuccess = (e: any) => {
       const cursor: IDBCursorWithValue | null = e.target.result;
       if (!cursor) return;
       const ch = cursor.value as Chunk;
@@ -444,25 +438,36 @@ export async function retrieveTopK(query: string, topK = 6, opts?: { docId?: str
       }
       cursor.continue();
     };
-    tx1.oncomplete = done;
-    tx1.onerror = () => reject(tx1.error);
-
-    // Load vectors
-    const tx2 = db.transaction(STORE_VECS, "readonly");
-    const os2 = tx2.objectStore(STORE_VECS);
-    const req2 = os2.openCursor();
-    req2.onsuccess = (e: any) => {
-      const cursor: IDBCursorWithValue | null = e.target.result;
-      if (!cursor) return;
-      const blob: Blob = cursor.value as Blob;
-      blob.arrayBuffer().then((buf) => {
-        vecs.push(new Float32Array(buf));
-        cursor.continue();
-      });
-    };
-    tx2.oncomplete = done;
-    tx2.onerror = () => reject(tx2.error);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
+
+  // Load only the corresponding vectors for the filtered chunks
+  const vecs: Float32Array[] = [];
+  if (chunks.length > 0) {
+    const tx = db.transaction(STORE_VECS, "readonly");
+    const store = tx.objectStore(STORE_VECS);
+    
+    const blobPromises = chunks.map(ch => {
+      return new Promise<Blob | null>((res, rej) => {
+        const req = store.get(ch.id);
+        req.onsuccess = () => res((req.result as Blob) || null);
+        req.onerror = () => rej(req.error);
+      });
+    });
+
+    const blobs = await Promise.all(blobPromises);
+    tx.commit?.(); // Commit transaction explicitly if supported, or let it finish
+
+    for (const blob of blobs) {
+      if (blob) {
+        const buf = await blob.arrayBuffer();
+        vecs.push(new Float32Array(buf));
+      } else {
+        vecs.push(new Float32Array(384)); // fallback empty vector
+      }
+    }
+  }
   db.close();
 
   // Build map chunkId -> index for aligning

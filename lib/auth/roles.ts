@@ -1,6 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 
-export type AppRole = "hr" | "admin";
+export type AppRole = "hr" | "admin" | "pelamar";
 export type LoginIntent = AppRole;
 
 const LOGIN_INTENT_KEY = "sgs_login_intent_role";
@@ -14,7 +14,9 @@ export function setLoginIntent(role: LoginIntent): void {
 export function getLoginIntent(): LoginIntent {
   if (typeof window === "undefined") return "hr";
   const v = sessionStorage.getItem(LOGIN_INTENT_KEY);
-  return v === "admin" ? "admin" : "hr";
+  if (v === "admin") return "admin";
+  if (v === "pelamar") return "pelamar";
+  return "hr";
 }
 
 export function clearLoginIntent(): void {
@@ -28,6 +30,7 @@ function parseRoleValue(raw: unknown): AppRole[] {
   const v = raw.toLowerCase().trim();
   if (v === "admin") return ["admin", "hr"];
   if (v === "both") return ["admin", "hr"];
+  if (v === "pelamar") return ["pelamar"];
   if (v === "hr") return ["hr"];
   return [];
 }
@@ -36,16 +39,16 @@ function parseRoleValue(raw: unknown): AppRole[] {
 export function getUserRoles(user: User | null | undefined): AppRole[] {
   if (!user) return [];
 
-  // Dev/demo: semua user login bisa akses admin (matikan di production)
-  if (process.env.SGS_DEV_ALLOW_ADMIN === "true") {
-    return ["admin", "hr"];
-  }
-
   const fromApp = parseRoleValue(user.app_metadata?.app_role);
   if (fromApp.length > 0) return fromApp;
 
   const fromMeta = parseRoleValue(user.user_metadata?.app_role);
   if (fromMeta.length > 0) return fromMeta;
+
+  // Dev/demo: semua user login bisa akses admin (matikan di production)
+  if (process.env.SGS_DEV_ALLOW_ADMIN === "true") {
+    return ["admin", "hr"];
+  }
 
   const adminEmails = (process.env.ADMIN_EMAILS ?? process.env.NEXT_PUBLIC_ADMIN_EMAILS ?? "")
     .split(",")
@@ -76,11 +79,17 @@ export function hasRole(roles: AppRole[], required: AppRole): boolean {
 }
 
 export function redirectPathForIntent(intent: LoginIntent): string {
-  return intent === "admin" ? "/admin/jd-criteria" : "/assistant-workspace";
+  if (intent === "admin") return "/admin/jd-criteria";
+  if (intent === "pelamar") return "/pelamar/dashboard";
+  return "/";
 }
 
 export function roleAccessError(intent: LoginIntent): string {
-  return intent === "admin"
-    ? "Akun ini tidak memiliki akses Admin. Gunakan login HR atau hubungi administrator."
-    : "Akun ini tidak memiliki akses HR.";
+  if (intent === "admin") {
+    return "Akun ini tidak memiliki akses Admin. Gunakan login HR atau hubungi administrator.";
+  }
+  if (intent === "pelamar") {
+    return "Akun ini tidak memiliki akses Pelamar.";
+  }
+  return "Akun ini tidak memiliki akses HR.";
 }
