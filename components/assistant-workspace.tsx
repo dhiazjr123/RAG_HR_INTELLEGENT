@@ -751,6 +751,21 @@ export default function AssistantWorkspace({ backButton }: { backButton?: React.
     })();
   }, []);
 
+  // Auto-fill input jika ada URL param ?q= (Replay query dari Dashboard HR)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const qParam = urlParams.get("q");
+      if (qParam && qParam.trim()) {
+        setInput(qParam.trim());
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   // Simpan riwayat setiap ada perubahan pesan
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1193,7 +1208,7 @@ export default function AssistantWorkspace({ backButton }: { backButton?: React.
               className={cn(
                 "aw-msg-enter px-4 py-3 rounded-xl shadow-lg border backdrop-blur-md max-w-sm",
                 notification.type === "success"
-                  ? "bg-emerald-500/90 text-white border-emerald-400"
+                  ? "bg-sky-500/90 text-white border-sky-400"
                   : "bg-red-500/90 text-white border-red-400"
               )}
             >
@@ -1420,7 +1435,7 @@ export default function AssistantWorkspace({ backButton }: { backButton?: React.
                                 <span
                                   className={cn(
                                     "h-1.5 w-1.5 rounded-full shrink-0",
-                                    d.status === "Processed" ? "bg-emerald-500" : "bg-amber-500 animate-pulse"
+                                    d.status === "Processed" ? "bg-sky-500" : "bg-amber-500 animate-pulse"
                                   )}
                                 />
                                 {d.name}
@@ -1452,14 +1467,14 @@ export default function AssistantWorkspace({ backButton }: { backButton?: React.
                           className={cn(
                             "max-w-[85%] min-w-0 rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
                             m.role === "user"
-                              ? "aw-user-bubble rounded-br-md font-medium"
+                              ? "aw-user-bubble rounded-br-md font-medium text-white"
                               : "aw-assistant-bubble rounded-bl-md text-foreground"
                           )}
                         >
                           {m.role === "assistant" ? (
                             <ChatMarkdown content={m.text} />
                           ) : (
-                            <div className="whitespace-pre-wrap break-words">{m.text}</div>
+                            <div className="whitespace-pre-wrap break-words text-white">{m.text}</div>
                           )}
                         </div>
                         {m.role === "user" && (

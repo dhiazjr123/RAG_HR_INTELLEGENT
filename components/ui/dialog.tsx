@@ -62,9 +62,10 @@ export function Dialog({ open, onOpenChange, title, children, className }: Dialo
               variant="ghost"
               size="sm"
               onClick={() => onOpenChange(false)}
-              className="h-8 w-8 p-0"
+              className="h-8 w-8 p-0 rounded-full bg-slate-100 text-slate-700 hover:bg-rose-100 hover:text-rose-600 border border-slate-200 transition-all shadow-sm flex items-center justify-center shrink-0"
+              aria-label="Tutup"
             >
-              <X className="h-4 w-4" />
+              <X className="h-4 w-4 stroke-[2.5]" />
             </Button>
           </div>
         )}

@@ -346,52 +346,10 @@
   }
   .btn-figma:active { transform: scale(0.98); }
 
-  /* ── CSS Overrides untuk halaman berlatar belakang putih (Login, Register, Profil, Setting) ── */
-  .bg-figma-auth,
-  .bg-figma-auth main,
-  .bg-figma-auth div,
-  .bg-figma-auth h1,
-  .bg-figma-auth h2,
-  .bg-figma-auth h3,
-  .bg-figma-auth h4,
-  .bg-figma-auth p,
-  .bg-figma-auth label,
-  .bg-figma-auth span {
-    color: #1e293b; /* text-slate-800 */
-  }
-
-  /* Override kelas khusus text-white agar mengikuti tema gelap di halaman terang */
-  .bg-figma-auth .text-white,
-  .bg-figma-auth .text-slate-100,
-  .bg-figma-auth .text-muted-foreground {
-    color: #475569 !important; /* text-slate-600 */
-  }
-
-  /* Perkecil/hilangkan decorative glow orbs di halaman putih agar tidak kotor */
-  .bg-figma-auth .rounded-full.blur-\[120px\] {
-    opacity: 0.15 !important;
-  }
-
-  /* JAGA warna teks tombol utama/gradient tetap putih agar terbaca */
-  .bg-figma-auth button,
-  .bg-figma-auth .btn-gradient,
-  .bg-figma-auth .btn-figma,
-  .bg-figma-auth .btn-gradient *,
-  .bg-figma-auth .btn-figma *,
-  .bg-figma-auth button *,
-  .bg-figma-auth .bg-primary,
-  .bg-figma-auth .bg-primary *,
-  .bg-figma-auth .bg-emerald-500,
-  .bg-figma-auth .bg-emerald-500 *,
-  .bg-figma-auth .bg-rose-500,
-  .bg-figma-auth .bg-rose-500 * {
-    color: #ffffff !important;
-  }
-
-  /* JAGA teks badge tertentu agar tetap readable */
-  .bg-figma-auth .badge {
-    color: #0f766e !important; /* teal-700 */
-    border-color: rgba(13, 148, 136, 0.2) !important;
+  /* ── CSS untuk halaman auth ── */
+  .bg-figma-auth {
+    background: #f8fafc !important;
+    color: #1e293b;
   }
 
 
@@ -558,9 +516,9 @@
     to { opacity: 1; transform: translateY(0); }
   }
   .aw-user-bubble {
-    background: linear-gradient(135deg, #6fb7ff 0%, #2f6bff 55%, #1d45f3 100%);
-    color: #0b1533;
-    box-shadow: 0 4px 14px rgba(47, 107, 255, 0.25);
+    background: linear-gradient(135deg, #10d4be 0%, #0ea5e9 60%, #0d9488 100%) !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 16px rgba(13, 196, 176, 0.35), 0 1px 4px rgba(0,0,0,0.08);
   }
   .aw-assistant-bubble {
     background: rgba(255, 255, 255, 0.06);

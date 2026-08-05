@@ -2637,7 +2637,7 @@ function formatCandidateEvidence(r: RankedCandidate, roleLabel: string): string[
 function formatCandidateBlockCompact(r: RankedCandidate, index: number, roleLabel: string): string {
   const evidence = formatCandidateEvidence(r, roleLabel);
   let md = `### ${index}. ${r.name}\n`;
-  md += `- **Skor:** ${r.score}/100\n`;
+  md += `- **Tingkat Kesesuaian:** ${getSuitabilityLabel(r.score)}\n`;
   if (evidence.length > 0) {
     for (const q of evidence) md += `- ${q}\n`;
   } else {
@@ -2740,7 +2740,7 @@ export function buildCvRankingHint(
     `\n\n=== DAFTAR PERINGKAT (${role.roleLabel}${explicitOnly ? "; hanya kandidat yang disebut HR" : ""}) ===\n`;
 
   listForHint.forEach((r, i) => {
-    hint += `${i + 1}. **${r.name}** (CV: ${r.filename}) — skor ${r.score}/100`;
+    hint += `${i + 1}. **${r.name}** (CV: ${r.filename}) — tingkat kesesuaian: ${getSuitabilityLabel(r.score)} (skor internal: ${r.score})`;
     if (r.depthMeta) {
       hint += ` (${r.depthMeta.matchedReqs} syarat JD, ${r.depthMeta.expCount} pengalaman/proyek, ${r.depthMeta.skillCount} skill)`;
     }
@@ -2749,7 +2749,8 @@ export function buildCvRankingHint(
   });
 
   hint += `\n**Wajib:**\n`;
-  hint += `- Skor = evaluasi **holistik CV** (cakupan JD + kedalaman pengalaman/proyek + jumlah skill), **bukan** sekadar kecocokan kata kunci.\n`;
+  hint += `- Gunakan **Tingkat Kesesuaian** kualitatif dalam format jawaban (Sangat Sesuai / Sesuai / Cukup Sesuai / Kurang Sesuai). Jangan tampilkan skor angka atau skor internal di jawaban akhir.\n`;
+  hint += `- Skor internal = evaluasi **holistik CV** (cakupan JD + kedalaman pengalaman/proyek + jumlah skill), **bukan** sekadar kecocokan kata kunci.\n`;
   hint += `- Kandidat dengan **lebih banyak** pengalaman/skill relevan JD harus **di atas** yang buktinya sedikit.\n`;
   hint += `- Posisi / kriteria aktif: **${role.roleLabel}**.\n`;
 
@@ -2783,7 +2784,7 @@ FORMAT WAJIB:
 
 ## Rekomendasi utama
 ### 1. [Nama dari daftar peringkat] (CV: file.pdf)
-- **Skor Kecocokan JD:** XX/100
+- **Tingkat Kesesuaian:** [Sangat Sesuai / Sesuai / Cukup Sesuai / Kurang Sesuai]
 - **Rangkuman Rekomendasi:** (alasan profesional kesesuaian profil kandidat)
 - **Bukti Kompetensi & Pengalaman (Eksplisit):**
   - **Pengalaman:** (gabungan tugas/pengalaman terkait)
@@ -2794,6 +2795,13 @@ FORMAT WAJIB:
 ## Kandidat lain
 - **[Nama]** (file.pdf): satu kalimat ringkas per orang
 `;
+
+export function getSuitabilityLabel(score: number): string {
+  if (score >= 70) return "Sangat Sesuai";
+  if (score >= 40) return "Sesuai";
+  if (score >= 12) return "Cukup Sesuai";
+  return "Kurang Sesuai";
+}
 
 function buildRecommendationLabel(score: number): string {
   if (score >= 70) return "Sangat disarankan untuk dilanjutkan ke tahap wawancara kompetensi teknis.";
@@ -2831,7 +2839,7 @@ function formatCandidateBlock(
   const evidence = formatCandidateEvidence(r, roleLabel);
 
   let md = `### ${index}. ${r.name} (CV: ${r.filename})\n`;
-  md += `- **Skor Kecocokan JD:** ${r.score}/100\n`;
+  md += `- **Tingkat Kesesuaian:** ${getSuitabilityLabel(r.score)}\n`;
   md += `- **Rangkuman Rekomendasi:** ${buildShortAlasan(r, roleLabel, evidence)}\n`;
   md += `- **Bukti Kompetensi & Pengalaman (Eksplisit):**\n`;
   if (evidence.length > 0) {
@@ -2992,7 +3000,7 @@ export function buildTopNRecommendationsMarkdown(
       for (const r of ranked) {
         const reason = r.score <= 0
           ? `tidak ditemukan bukti skill/pengalaman relevan untuk **${role.roleLabel}**`
-          : `skor ${r.score}/100 — di bawah ambang minimum (${MIN_SCORE_FOR_RECOMMENDATION}/100)`;
+          : `tingkat kesesuaian: ${getSuitabilityLabel(r.score)} — di bawah ambang minimum`;
         md += `- **${r.name}** (CV: ${r.filename}): ${reason}.\n`;
       }
 
@@ -3008,11 +3016,11 @@ export function buildTopNRecommendationsMarkdown(
   let md = `## Ringkasan eksekutif\n`;
   if (explicitNamedOnly && picks.length >= 2) {
     if (winner.score > runnerUp.score + 5) {
-      md += `Untuk posisi **${role.roleLabel}**, **${winner.name}** lebih unggul daripada **${runnerUp.name}** berdasarkan bukti di CV (skor ${winner.score}/100 vs ${runnerUp.score}/100). `;
+      md += `Untuk posisi **${role.roleLabel}**, **${winner.name}** lebih unggul daripada **${runnerUp.name}** berdasarkan bukti di CV (tingkat kesesuaian: ${getSuitabilityLabel(winner.score)} vs ${getSuitabilityLabel(runnerUp.score)}). `;
     } else if (winner.score > runnerUp.score) {
       md += `Untuk posisi **${role.roleLabel}**, **${winner.name}** sedikit lebih unggul daripada **${runnerUp.name}**; pertimbangkan wawancara lanjut untuk keduanya. `;
     } else {
-      md += `Perbandingan **${role.roleLabel}** antara **${mentioned.map((m) => m.name).join(" dan ")}** tidak menunjukkan perbedaan kuat di CV (skor seri/rendah). `;
+      md += `Perbandingan **${role.roleLabel}** antara **${mentioned.map((m) => m.name).join(" dan ")}** tidak menunjukkan perbedaan kuat di CV. `;
     }
     md += `Hanya kandidat yang Anda sebut yang dinilai.\n\n`;
   } else if (mentioned.length >= 2) {
@@ -3021,7 +3029,7 @@ export function buildTopNRecommendationsMarkdown(
   } else {
     md += `Dari ${ranked.length} CV yang dipindai, ditemukan **${picks.length} kandidat** yang memenuhi syarat minimum untuk posisi **${role.roleLabel}**. `;
     if (picks[0]) {
-      md += `Kandidat teratas: **${picks[0].name}** (skor ${picks[0].score}/100).`;
+      md += `Kandidat teratas: **${picks[0].name}** (tingkat kesesuaian: ${getSuitabilityLabel(picks[0].score)}).`;
     }
     md += `\n\n`;
   }
@@ -3039,8 +3047,8 @@ export function buildTopNRecommendationsMarkdown(
         r.score < MIN_SCORE_ABSOLUTE
           ? `tidak ditemukan bukti skill/pengalaman relevan untuk **${role.roleLabel}**`
           : r.score < MIN_SCORE_FOR_RECOMMENDATION
-            ? `skor ${r.score}/100 — belum memenuhi ambang rekomendasi untuk posisi ini`
-            : `skor ${r.score}/100 — di bawah kandidat rekomendasi utama`;
+            ? `tingkat kesesuaian: ${getSuitabilityLabel(r.score)} — belum memenuhi ambang rekomendasi untuk posisi ini`
+            : `tingkat kesesuaian: ${getSuitabilityLabel(r.score)} — di bawah kandidat rekomendasi utama`;
       md += `- **${r.name}** (CV: ${r.filename}): ${note}.\n`;
     }
     md += "\n";
@@ -3077,6 +3085,7 @@ function isNegativeBlock(block: string): boolean {
   const b = block.toLowerCase();
   if (/nama tidak tersurat/i.test(b)) return true;
   if (/\(cv:\s*\.{2,}\)/i.test(b) || /\(cv:\s*\)/i.test(b)) return true;
+  if (/tingkat kesesuaian:\s*kurang sesuai/i.test(b) && !/unity|\bgame\b/i.test(b)) return true;
   if (/skor[^:\n]*:\s*0\b/.test(b) && !/unity|\bgame\b/i.test(b)) return true;
   if (/bukti[^:\n]*:.*tidak mencantumkan/i.test(b) && !/unity|unreal|godot|\bgame\b/i.test(b)) {
     return true;

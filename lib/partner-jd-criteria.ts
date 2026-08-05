@@ -17,6 +17,14 @@ export type PartnerJobCriteria = {
   niceToHave: string[];
   /** Teks penuh untuk konteks RAG */
   fullText: string;
+  /** Status persetujuan HR saat Admin ubah/tambah kriteria */
+  approvalStatus?: "approved" | "pending";
+  /** Alasan HR jika memilih status pending */
+  pendingReason?: string;
+  /** ISO timestamp saat diajukan Admin */
+  pendingAt?: string;
+  /** ISO timestamp saat HR memberikan respons (Setuju / Pending) */
+  hrRespondedAt?: string;
 };
 
 export const PARTNER_NAME = "PT Sosro Gunung Slamet";

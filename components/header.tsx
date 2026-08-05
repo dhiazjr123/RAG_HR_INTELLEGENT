@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { LogOut, HelpCircle, User2, Settings, Search, Bell, Bot, BarChart3, FileText } from "lucide-react";
+import { LogOut, HelpCircle, User2, Settings, Bot, BarChart3, FileText } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,10 @@ export function Header() {
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [userRole, setUserRole] = useState<{ isAdmin: boolean; isHr: boolean } | null>(null);
+
+  const isAdminPage = pathname.startsWith("/admin");
+  const isAdminView = isAdminPage || (userRole?.isAdmin && !userRole?.isHr);
 
   const onLogout = async () => {
     setIsLoggingOut(true);
@@ -31,6 +35,20 @@ export function Header() {
     router.replace("/login");
     router.refresh();
   };
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && !data.error) {
+          setUserRole({
+            isAdmin: Boolean(data.isAdmin),
+            isHr: Boolean(data.isHr),
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
@@ -53,7 +71,7 @@ export function Header() {
       <div className="max-w-7xl mx-auto flex h-12 items-center justify-between gap-4">
         
         {/* LEFT: Logo Card */}
-        <Link href="/" className="flex items-center">
+        <Link href={isAdminView ? "/admin/jd-criteria" : "/"} className="flex items-center">
           <div className="bg-white border border-slate-100 shadow-sm rounded-xl px-4 py-1.5 flex items-center gap-2 hover:bg-slate-50 transition-colors">
             <Image
               src="/logo ISRE.png"
@@ -65,55 +83,38 @@ export function Header() {
             />
             <div className="h-6 w-[1px] bg-slate-200" />
             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest leading-none">
-              HR Portal
+              {isAdminView ? "Admin Panel" : "HR Portal"}
             </span>
           </div>
         </Link>
 
-        {/* CENTER: Navigation Pill Capsule */}
-        <nav className="hidden md:flex bg-slate-50 border border-slate-100/80 shadow-inner rounded-full p-1 items-center gap-1">
-          {navItems.map((item) => {
-            const active = pathname === item.href;
-            const Icon = item.icon;
-            return (
-              <Link key={item.href} href={item.href}>
-                <button
-                  className={cn(
-                    "flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-semibold transition-all duration-300",
-                    active
-                      ? "bg-gradient-to-r from-[#0ea5e9] to-[#0d9488] text-white shadow-md shadow-[#0ea5e9]/20 scale-105"
-                      : "text-slate-600 hover:text-slate-900 hover:bg-white/80"
-                  )}
-                >
-                  <Icon className={cn("h-3.5 w-3.5", active ? "text-white" : "text-slate-500")} />
-                  <span>{item.label}</span>
-                </button>
-              </Link>
-            );
-          })}
-        </nav>
+        {/* CENTER: Navigation Pill Capsule (Only for HR, hidden for Admin) */}
+        {!isAdminView && (
+          <nav className="hidden md:flex bg-slate-50 border border-slate-100/80 shadow-inner rounded-full p-1 items-center gap-1">
+            {navItems.map((item) => {
+              const active = pathname === item.href;
+              const Icon = item.icon;
+              return (
+                <Link key={item.href} href={item.href}>
+                  <button
+                    className={cn(
+                      "flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-semibold transition-all duration-300",
+                      active
+                        ? "bg-gradient-to-r from-[#0ea5e9] to-[#0d9488] text-white shadow-md shadow-[#0ea5e9]/20 scale-105"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-white/80"
+                    )}
+                  >
+                    <Icon className={cn("h-3.5 w-3.5", active ? "text-white" : "text-slate-500")} />
+                    <span>{item.label}</span>
+                  </button>
+                </Link>
+              );
+            })}
+          </nav>
+        )}
 
-        {/* RIGHT: Search, Notifications, Avatar */}
+        {/* RIGHT: Avatar & Logout */}
         <div className="flex items-center gap-3">
-          
-          {/* Search Box Capsule */}
-          <div className="relative max-w-xs hidden sm:block">
-            <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search..."
-              className="w-40 pl-9 pr-4 py-1.5 bg-slate-50/80 border border-slate-100 rounded-full text-xs transition-all duration-300 focus:outline-none focus:w-48 focus:bg-white focus:ring-1 focus:ring-[#0ea5e9] focus:border-[#0ea5e9] placeholder-slate-400 text-slate-800"
-            />
-          </div>
-
-          {/* Notification bell with red dot */}
-          <button className="relative w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 transition-colors text-slate-600">
-            <Bell className="h-4 w-4" />
-            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-rose-500 border border-white" />
-          </button>
-
-          {/* Divider */}
-          <div className="h-6 w-[1px] bg-slate-200 hidden sm:block" />
 
           {/* Logout & Profile Menu */}
           <div className="flex items-center gap-2">

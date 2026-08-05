@@ -1,6 +1,7 @@
 // app/page.tsx  (SERVER COMPONENT)
 import { redirect } from "next/navigation";
 import HomeShell from "@/components/home-shell";
+import LandingPage from "@/components/landing-page";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { getUserRoles } from "@/lib/auth/roles";
 
@@ -21,14 +22,16 @@ export default async function Page() {
     console.error('Page load error (auth fetch):', error);
   }
 
-  // Jalankan redirect di luar try-catch agar Next.js memprosesnya secara normal
   if (!user) {
-    redirect("/login?next=/");
+    return <LandingPage />;
   }
 
   console.log('User authenticated:', user.email);
 
   const roles = getUserRoles(user);
+  if (roles.includes("admin")) {
+    redirect("/admin/jd-criteria");
+  }
   if (roles.includes("pelamar")) {
     redirect("/pelamar/dashboard");
   }

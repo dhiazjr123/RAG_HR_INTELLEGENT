@@ -48,13 +48,34 @@ export default function PelamarDashboard() {
   const [profileName, setProfileName] = useState("");
   const [profileEmail, setProfileEmail] = useState("");
   const [profilePhone, setProfilePhone] = useState("");
+  const [profileGender, setProfileGender] = useState("");
+  const [profileBirthPlace, setProfileBirthPlace] = useState("");
+  const [profileBirthDate, setProfileBirthDate] = useState("");
   const [profileEducation, setProfileEducation] = useState("");
   const [profileMajor, setProfileMajor] = useState("");
 
-  const jds = [
-    { id: "tech", title: "Modern Packaging Technition PBK" },
-    { id: "worker", title: "Modern Packaging Worker PBK" }
-  ];
+  const [jds, setJds] = useState<{ id: string; title: string }[]>([]);
+
+  useEffect(() => {
+    fetch("/api/jd-criteria/public")
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data.criteria) && data.criteria.length > 0) {
+          setJds(data.criteria.map((c: any) => ({ id: c.id, title: c.title })));
+        } else {
+          setJds([
+            { id: "sgs-pbk-modern-packaging-tech", title: "Modern Packaging Technition PBK" },
+            { id: "sgs-pbk-modern-packaging-worker", title: "Modern Packaging Worker PBK" }
+          ]);
+        }
+      })
+      .catch(() => {
+        setJds([
+          { id: "sgs-pbk-modern-packaging-tech", title: "Modern Packaging Technition PBK" },
+          { id: "sgs-pbk-modern-packaging-worker", title: "Modern Packaging Worker PBK" }
+        ]);
+      });
+  }, []);
 
   // Load user submissions from localStorage
   const loadUserSubmissions = (uId: string) => {
@@ -75,6 +96,7 @@ export default function PelamarDashboard() {
     supabase.auth.getUser().then(({ data }) => {
       if (data.user) {
         const name = data.user.user_metadata?.full_name || data.user.email?.split('@')[0] || "Pelamar";
+        const metaPhone = data.user.user_metadata?.phone || "";
         setUserName(name);
         setUserId(data.user.id);
         loadUserSubmissions(data.user.id);
@@ -86,11 +108,14 @@ export default function PelamarDashboard() {
             const p = JSON.parse(savedProfile);
             setProfileName(p.name || name);
             setProfileEmail(p.email || data.user.email || "");
-            setProfilePhone(p.phone || "");
-            setProfileEducation(p.education || "");
+            setProfilePhone(p.phone || metaPhone);
+            setProfileGender(p.gender || "");
+            setProfileBirthPlace(p.birthPlace || "");
+            setProfileBirthDate(p.birthDate || "");
+            setProfileEducation(p.education || data.user.user_metadata?.education || "");
             setProfileMajor(p.major || "");
             // If profile is fully filled, proceed directly to Step 2 (CV upload)
-            if (p.name && p.email && p.phone && p.education && p.major) {
+            if (p.name && p.email && (p.phone || metaPhone) && p.gender && p.birthPlace && p.birthDate && (p.education || data.user.user_metadata?.education) && p.major) {
               setStep(2);
             }
           } catch (e) { }
@@ -98,6 +123,8 @@ export default function PelamarDashboard() {
           // Pre-fill defaults
           setProfileName(name);
           setProfileEmail(data.user.email || "");
+          setProfilePhone(metaPhone);
+          setProfileEducation(data.user.user_metadata?.education || "");
         }
       } else {
         router.push("/login?next=/pelamar/dashboard");
@@ -119,6 +146,18 @@ export default function PelamarDashboard() {
       setErrorMsg("No. Handphone harus diisi.");
       return;
     }
+    if (!profileGender) {
+      setErrorMsg("Harap pilih jenis kelamin.");
+      return;
+    }
+    if (!profileBirthPlace.trim()) {
+      setErrorMsg("Harap isi tempat lahir.");
+      return;
+    }
+    if (!profileBirthDate) {
+      setErrorMsg("Harap isi tanggal lahir.");
+      return;
+    }
     if (!profileEducation) {
       setErrorMsg("Silakan pilih pendidikan terakhir.");
       return;
@@ -133,20 +172,24 @@ export default function PelamarDashboard() {
       name: profileName.trim(),
       email: profileEmail.trim(),
       phone: profilePhone.trim(),
+      gender: profileGender,
+      birthPlace: profileBirthPlace.trim(),
+      birthDate: profileBirthDate,
       education: profileEducation,
       major: profileMajor.trim(),
     };
     localStorage.setItem(`rag_profile_${userId}`, JSON.stringify(profile));
     setUserName(profile.name);
+
+    // Sync updated phone to Supabase user_metadata
+    supabase.auth.updateUser({ data: { phone: profilePhone.trim() } }).catch(() => {});
+
     setStep(2);
   };
 
 
   useEffect(() => {
-    document.body.classList.add("theme-dark-applicant");
-    return () => {
-      document.body.classList.remove("theme-dark-applicant");
-    };
+    // Let page inherit default light theme matching HR workspace
   }, []);
 
   // Listen to storage changes to refresh candidate submissions list
@@ -279,9 +322,10 @@ export default function PelamarDashboard() {
       await buildIndexForDocument(docId, file, undefined, "shared");
 
       // 2. Analyze CV vs JD
-      const jdTitle = jds.find(j => j.id === selectedJd)?.title || selectedJd;
-      const targetJdId = selectedJd === "tech" ? "sgs-pbk-modern-packaging-tech" : selectedJd === "worker" ? "sgs-pbk-modern-packaging-worker" : "";
-      const matchJd = PARTNER_JD_CRITERIA.find(c => c.id === targetJdId);
+      const selectedJdObj = jds.find((j) => j.id === selectedJd);
+      const jdTitle = selectedJdObj?.title || selectedJd;
+      const targetJdId = selectedJdObj?.id || selectedJd;
+      const matchJd = PARTNER_JD_CRITERIA.find((c) => c.id === targetJdId);
       const jdCriteria = matchJd?.fullText || "";
 
       // RAG: Retrieve top 3 matching chunks of CV against the JD criteria
@@ -297,6 +341,7 @@ export default function PelamarDashboard() {
         body: JSON.stringify({
           cvText,
           jdTitle,
+          jdId: targetJdId,
           jdCriteria,
           retrievedContext,
           avgSimilarity
@@ -345,6 +390,9 @@ export default function PelamarDashboard() {
         uploadDate: new Date().toISOString(),
         profileEmail,
         profilePhone,
+        profileGender,
+        profileBirthPlace,
+        profileBirthDate,
         profileEducation,
         profileMajor,
       });
@@ -398,36 +446,36 @@ export default function PelamarDashboard() {
   return (
     <div className="min-h-screen bg-[#070c17] text-slate-100 flex flex-col font-sans antialiased relative overflow-hidden">
       {/* Decorative background glow spots */}
-      <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full bg-emerald-500/10 blur-[120px] pointer-events-none" />
+      <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full bg-sky-500/10 blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-blue-500/10 blur-[120px] pointer-events-none" />
 
       {/* Glass header */}
-      <header className="sticky top-0 z-50 bg-[#0d131f]/60 backdrop-blur-md border-b border-[#1b253b] px-6 py-4 flex justify-between items-center shadow-lg">
+      <header className="sticky top-0 z-50 bg-white backdrop-blur-md border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 bg-emerald-500/20 text-emerald-400 rounded-xl flex items-center justify-center border border-emerald-500/30">
+          <div className="h-10 w-10 bg-sky-50 text-sky-600 rounded-xl flex items-center justify-center border border-sky-100">
             <User className="h-5 w-5" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-bold tracking-widest text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">PELAMAR</span>
+              <span className="text-[10px] font-bold tracking-widest text-sky-600 bg-sky-50 px-2 py-0.5 rounded-full border border-sky-100">PELAMAR</span>
             </div>
-            <h1 className="font-extrabold text-white text-base tracking-wide mt-0.5">Portal Karir PT Sosro</h1>
+            <h1 className="font-extrabold text-slate-800 text-base tracking-wide mt-0.5">Portal Karir</h1>
           </div>
         </div>
 
         <div className="flex items-center gap-4">
           <div className="hidden sm:flex flex-col items-end">
-            <span className="text-xs font-semibold text-white">{userName}</span>
-            <span className="text-[10px] text-slate-400">Kandidat Aktif</span>
+            <span className="text-xs font-semibold text-slate-800">{userName}</span>
+            <span className="text-[10px] text-slate-500">Kandidat Aktif</span>
           </div>
           <Button
             variant="outline"
             size="sm"
             onClick={logout}
-            className="border-slate-800 bg-[#0f172a] hover:bg-slate-900 text-slate-300 hover:text-white flex items-center gap-1.5"
+            className="border-slate-200 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 flex items-center gap-1.5"
           >
             <LogOut className="h-3.5 w-3.5" />
-            <span>Keluar</span>
+            <span>Logout</span>
           </Button>
         </div>
       </header>
@@ -436,18 +484,18 @@ export default function PelamarDashboard() {
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 py-10 relative z-10">
 
         {/* Welcome banner */}
-        <div className="mb-8 p-6 bg-gradient-to-r from-[#0f1b2f]/90 via-[#0d2138]/85 to-[#0b1626]/90 border border-[#1e2f4d] rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-xl">
+        <div className="mb-8 p-6 bg-gradient-to-r from-sky-50/70 via-sky-50/60 to-sky-50/30 border border-sky-100 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-md">
           <div>
-            <h2 className="text-xl font-black text-white tracking-tight flex items-center gap-2">
-              Selamat datang kembali, <span className="text-emerald-400">{userName}</span>!
+            <h2 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+              Selamat datang kembali, <span className="text-sky-600 font-extrabold">{userName}</span>!
             </h2>
-            <p className="text-xs text-slate-400 mt-1 max-w-xl">
-              Unggah CV terbaik Anda di bawah ini. AI Asisten HR kami akan langsung membaca pengalaman, keterampilan, dan mencocokkan Anda dengan posisi impian di PT Sosro.
+            <p className="text-xs text-slate-500 mt-1 max-w-xl">
+              Unggah CV terbaik Anda di bawah ini. AI Asisten HR kami akan langsung membaca pengalaman, keterampilan, dan mencocokkan Anda dengan posisi impian Anda.
             </p>
           </div>
-          <div className="flex items-center gap-3 bg-[#080d1a] border border-[#1b2b48] px-4 py-2 rounded-xl">
-            <div className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
-            <span className="text-xs font-bold text-slate-300">Sistem Seleksi AI Aktif</span>
+          <div className="flex items-center gap-3 bg-white border border-sky-200 px-4 py-2 rounded-xl shadow-sm">
+            <div className="h-2 w-2 rounded-full bg-sky-500 animate-ping" />
+            <span className="text-xs font-bold text-slate-600">Sistem Seleksi AI Aktif</span>
           </div>
         </div>
 
@@ -455,43 +503,43 @@ export default function PelamarDashboard() {
 
           {/* Form Upload Area (3 Columns) */}
           <div className="lg:col-span-3 space-y-6">
-            <Card className="bg-[#0d131f]/70 border-[#1f2d47] shadow-2xl backdrop-blur-sm overflow-hidden">
-              <CardHeader className="border-b border-[#1b2b48] bg-[#111927]/60 pb-5">
-                <CardTitle className="text-base font-extrabold text-white flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 text-emerald-400" />
+            <Card className="bg-white border-slate-200 shadow-md overflow-hidden">
+              <CardHeader className="border-b border-slate-100 bg-slate-50/50 pb-5">
+                <CardTitle className="text-base font-extrabold text-slate-800 flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-sky-600" />
                   Kirim Lamaran Pekerjaan Baru
                 </CardTitle>
-                <CardDescription className="text-xs text-slate-400">
+                <CardDescription className="text-xs text-slate-500">
                   Lengkapi data diri Anda dan unggah berkas CV format PDF
                 </CardDescription>
               </CardHeader>
 
               <CardContent className="p-6 space-y-6">
                 {/* Stepper Progress Bar */}
-                <div className="flex items-center justify-between pb-4 border-b border-[#1b2b48]/60">
+                <div className="flex items-center justify-between pb-4 border-b border-slate-100">
                   <div className="flex items-center gap-2.5">
                     <div className={`h-7 w-7 rounded-lg flex items-center justify-center text-xs font-black transition-all ${step === 1
-                        ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/25 ring-2 ring-emerald-500/20"
-                        : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                        ? "bg-sky-500 text-white shadow-lg shadow-sky-500/25 ring-2 ring-sky-500/20"
+                        : "bg-sky-50/80 text-sky-600 border border-sky-200/50"
                       }`}>
                       1
                     </div>
                     <div>
-                      <span className={`text-[10px] block font-bold tracking-widest uppercase ${step === 1 ? "text-emerald-400" : "text-slate-400"}`}>Langkah 1</span>
-                      <span className={`text-xs font-bold ${step === 1 ? "text-white" : "text-slate-400"}`}>Isi Data Diri</span>
+                      <span className={`text-[10px] block font-bold tracking-widest uppercase ${step === 1 ? "text-sky-600" : "text-slate-400"}`}>Langkah 1</span>
+                      <span className={`text-xs font-bold ${step === 1 ? "text-slate-800" : "text-slate-400"}`}>Isi Data Diri</span>
                     </div>
                   </div>
-                  <div className="h-px bg-[#1e2f4d] flex-1 mx-4" />
+                  <div className="h-px bg-slate-100 flex-1 mx-4" />
                   <div className="flex items-center gap-2.5">
                     <div className={`h-7 w-7 rounded-lg flex items-center justify-center text-xs font-black transition-all ${step === 2
-                        ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/25 ring-2 ring-emerald-500/20"
-                        : "bg-slate-800 text-slate-500"
+                        ? "bg-sky-500 text-white shadow-lg shadow-sky-500/25 ring-2 ring-sky-500/20"
+                        : "bg-slate-50 text-slate-400 border border-slate-200"
                       }`}>
                       2
                     </div>
                     <div>
-                      <span className={`text-[10px] block font-bold tracking-widest uppercase ${step === 2 ? "text-emerald-400" : "text-slate-500"}`}>Langkah 2</span>
-                      <span className={`text-xs font-bold ${step === 2 ? "text-white" : "text-slate-500"}`}>Unggah CV</span>
+                      <span className={`text-[10px] block font-bold tracking-widest uppercase ${step === 2 ? "text-sky-600" : "text-slate-400"}`}>Langkah 2</span>
+                      <span className={`text-xs font-bold ${step === 2 ? "text-slate-800" : "text-slate-400"}`}>Unggah CV</span>
                     </div>
                   </div>
                 </div>
@@ -501,8 +549,8 @@ export default function PelamarDashboard() {
                   <form onSubmit={handleSaveProfile} className="space-y-4">
                     {/* Nama Lengkap */}
                     <div className="space-y-2">
-                      <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                        <User className="h-3.5 w-3.5 text-emerald-400" />
+                      <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                        <User className="h-3.5 w-3.5 text-sky-600" />
                         Nama Lengkap
                       </label>
                       <input
@@ -511,14 +559,14 @@ export default function PelamarDashboard() {
                         value={profileName}
                         onChange={(e) => setProfileName(e.target.value)}
                         placeholder="Masukkan nama lengkap sesuai KTP"
-                        className="w-full h-11 rounded-lg border border-[#1e2f4d] bg-[#090d16] px-3.5 text-sm text-white font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500"
+                        className="w-full h-11 rounded-lg border border-slate-200 bg-white px-3.5 text-sm text-slate-800 font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500"
                       />
                     </div>
 
                     {/* Email */}
                     <div className="space-y-2">
-                      <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                        <Mail className="h-3.5 w-3.5 text-emerald-400" />
+                      <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                        <Mail className="h-3.5 w-3.5 text-sky-600" />
                         Alamat Email
                       </label>
                       <input
@@ -527,14 +575,14 @@ export default function PelamarDashboard() {
                         value={profileEmail}
                         onChange={(e) => setProfileEmail(e.target.value)}
                         placeholder="nama@email.com"
-                        className="w-full h-11 rounded-lg border border-[#1e2f4d] bg-[#090d16] px-3.5 text-sm text-white font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500"
+                        className="w-full h-11 rounded-lg border border-slate-200 bg-white px-3.5 text-sm text-slate-800 font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500"
                       />
                     </div>
 
                     {/* No. HP */}
                     <div className="space-y-2">
-                      <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                        <Phone className="h-3.5 w-3.5 text-emerald-400" />
+                      <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                        <Phone className="h-3.5 w-3.5 text-sky-600" />
                         Nomor Handphone
                       </label>
                       <input
@@ -543,14 +591,84 @@ export default function PelamarDashboard() {
                         value={profilePhone}
                         onChange={(e) => setProfilePhone(e.target.value)}
                         placeholder="Contoh: 081234567890"
-                        className="w-full h-11 rounded-lg border border-[#1e2f4d] bg-[#090d16] px-3.5 text-sm text-white font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500"
+                        className="w-full h-11 rounded-lg border border-slate-200 bg-white px-3.5 text-sm text-slate-800 font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500"
                       />
+                    </div>
+
+                    {/* Jenis Kelamin */}
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                        <User className="h-3.5 w-3.5 text-sky-600" />
+                        Jenis Kelamin
+                      </label>
+                      <div className="flex items-center gap-6 py-2">
+                        <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer select-none">
+                          <input
+                            type="radio"
+                            name="profile_gender"
+                            value="Laki-laki"
+                            checked={profileGender === "Laki-laki"}
+                            onChange={(e) => setProfileGender(e.target.value)}
+                            required
+                            className="h-4 w-4 accent-sky-500"
+                          />
+                          <span>Laki-laki</span>
+                        </label>
+                        <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer select-none">
+                          <input
+                            type="radio"
+                            name="profile_gender"
+                            value="Perempuan"
+                            checked={profileGender === "Perempuan"}
+                            onChange={(e) => setProfileGender(e.target.value)}
+                            required
+                            className="h-4 w-4 accent-sky-500"
+                          />
+                          <span>Perempuan</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Tempat & Tanggal Lahir */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                          <BookOpen className="h-3.5 w-3.5 text-sky-600" />
+                          Tempat Lahir
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={profileBirthPlace}
+                          onChange={(e) => setProfileBirthPlace(e.target.value)}
+                          placeholder="Contoh: Tegal"
+                          className="w-full h-11 rounded-lg border border-slate-200 bg-white px-3.5 text-sm text-slate-800 font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                          <Calendar className="h-3.5 w-3.5 text-sky-600" />
+                          Tanggal Lahir
+                        </label>
+                        <input
+                          type="date"
+                          required
+                          value={profileBirthDate}
+                          onChange={(e) => setProfileBirthDate(e.target.value)}
+                          onClick={(e) => {
+                            try {
+                              e.currentTarget.showPicker();
+                            } catch (err) {}
+                          }}
+                          className="w-full h-11 rounded-lg border border-slate-200 bg-white px-3.5 text-sm text-slate-800 font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 cursor-pointer"
+                        />
+                      </div>
                     </div>
 
                     {/* Pendidikan Terakhir */}
                     <div className="space-y-2">
-                      <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                        <GraduationCap className="h-3.5 w-3.5 text-emerald-400" />
+                      <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                        <GraduationCap className="h-3.5 w-3.5 text-sky-600" />
                         Pendidikan Terakhir
                       </label>
                       <div className="relative">
@@ -558,14 +676,14 @@ export default function PelamarDashboard() {
                           value={profileEducation}
                           onChange={(e) => setProfileEducation(e.target.value)}
                           required
-                          className="w-full h-11 rounded-lg border border-[#1e2f4d] bg-[#090d16] px-3.5 text-sm text-white font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 appearance-none"
+                          className="w-full h-11 rounded-lg border border-slate-200 bg-white px-3.5 text-sm text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 appearance-none"
                         >
-                          <option value="" disabled className="bg-[#070c17]">Pilih Pendidikan Terakhir...</option>
-                          <option value="SMA/SMK" className="bg-[#070c17]">SMA / SMK / Sederajat</option>
-                          <option value="D3" className="bg-[#070c17]">D3 (Diploma 3)</option>
-                          <option value="S1" className="bg-[#070c17]">S1 (Sarjana 1)</option>
-                          <option value="S2" className="bg-[#070c17]">S2 (Magister)</option>
-                          <option value="S3" className="bg-[#070c17]">S3 (Doktor)</option>
+                          <option value="" disabled className="bg-white">Pilih Pendidikan Terakhir...</option>
+                          <option value="SMA/SMK" className="bg-white">SMA / SMK / Sederajat</option>
+                          <option value="D3" className="bg-white">D3 (Diploma 3)</option>
+                          <option value="S1" className="bg-white">S1 (Sarjana 1)</option>
+                          <option value="S2" className="bg-white">S2 (Magister)</option>
+                          <option value="S3" className="bg-white">S3 (Doktor)</option>
                         </select>
                         <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-400">
                           <ChevronRight className="h-4 w-4 transform rotate-90" />
@@ -575,8 +693,8 @@ export default function PelamarDashboard() {
 
                     {/* Jurusan */}
                     <div className="space-y-2">
-                      <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                        <BookOpen className="h-3.5 w-3.5 text-emerald-400" />
+                      <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                        <BookOpen className="h-3.5 w-3.5 text-sky-600" />
                         Jurusan / Program Studi
                       </label>
                       <input
@@ -585,7 +703,7 @@ export default function PelamarDashboard() {
                         value={profileMajor}
                         onChange={(e) => setProfileMajor(e.target.value)}
                         placeholder="Contoh: Teknik Informatika, Manajemen"
-                        className="w-full h-11 rounded-lg border border-[#1e2f4d] bg-[#090d16] px-3.5 text-sm text-white font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500"
+                        className="w-full h-11 rounded-lg border border-slate-200 bg-white px-3.5 text-sm text-slate-800 font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500"
                       />
                     </div>
 
@@ -598,7 +716,7 @@ export default function PelamarDashboard() {
 
                     <Button
                       type="submit"
-                      className="w-full bg-[#1b253b] hover:bg-[#1f2c48] active:scale-98 font-bold text-white shadow-lg transition-all border border-[#2c3d61] h-11 text-xs uppercase tracking-widest rounded-lg mt-6"
+                      className="w-full btn-figma hover:opacity-95 active:scale-98 font-bold text-white shadow-md transition-all border-0 h-11 text-xs uppercase tracking-widest rounded-lg mt-6"
                     >
                       Simpan & Lanjut ke Upload CV
                     </Button>
@@ -606,16 +724,16 @@ export default function PelamarDashboard() {
                 ) : (
                   <div className="space-y-6">
                     {/* Ringkasan Data Diri (Readonly with Edit button) */}
-                    <div className="p-4 bg-[#0a1122]/90 border border-[#1d2d49] rounded-xl relative shadow-inner">
+                    <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl relative shadow-inner">
                       <div className="flex justify-between items-center mb-3">
-                        <h3 className="text-xs font-extrabold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
-                          <User className="h-3.5 w-3.5" />
+                        <h3 className="text-xs font-extrabold text-sky-600 uppercase tracking-wider flex items-center gap-1.5">
+                          <User className="h-3.5 w-3.5 text-sky-600" />
                           Data Diri Pelamar
                         </h3>
                         <button
                           type="button"
                           onClick={() => setStep(1)}
-                          className="text-[10px] font-bold text-slate-300 hover:text-white flex items-center gap-1 bg-[#152037] hover:bg-[#1d2b49] py-1 px-2.5 rounded border border-[#273a62] transition-colors"
+                          className="text-[10px] font-bold text-slate-650 hover:text-slate-900 flex items-center gap-1 bg-white hover:bg-slate-100 py-1 px-2.5 rounded border border-slate-200 transition-colors"
                         >
                           <ArrowLeft className="h-3 w-3" />
                           <span>Ubah Data</span>
@@ -624,39 +742,49 @@ export default function PelamarDashboard() {
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs">
                         <div>
-                          <span className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider mb-0.5">Nama Lengkap</span>
-                          <span className="text-white font-semibold">{profileName}</span>
+                          <span className="text-slate-500 block text-[9px] uppercase font-bold tracking-wider mb-0.5">Nama Lengkap</span>
+                          <span className="text-slate-800 font-semibold">{profileName}</span>
                         </div>
                         <div>
-                          <span className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider mb-0.5">Email</span>
-                          <span className="text-white font-semibold">{profileEmail}</span>
+                          <span className="text-slate-500 block text-[9px] uppercase font-bold tracking-wider mb-0.5">Email</span>
+                          <span className="text-slate-800 font-semibold">{profileEmail}</span>
                         </div>
                         <div>
-                          <span className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider mb-0.5">No. Handphone</span>
-                          <span className="text-white font-semibold">{profilePhone}</span>
+                          <span className="text-slate-500 block text-[9px] uppercase font-bold tracking-wider mb-0.5">No. Handphone</span>
+                          <span className="text-slate-800 font-semibold">{profilePhone}</span>
                         </div>
                         <div>
-                          <span className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider mb-0.5">Pendidikan Terakhir</span>
-                          <span className="text-white font-semibold">{profileEducation} — {profileMajor}</span>
+                          <span className="text-slate-500 block text-[9px] uppercase font-bold tracking-wider mb-0.5">Jenis Kelamin</span>
+                          <span className="text-slate-800 font-semibold">{profileGender}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block text-[9px] uppercase font-bold tracking-wider mb-0.5">TTL (Tempat, Tanggal Lahir)</span>
+                          <span className="text-slate-800 font-semibold">
+                            {profileBirthPlace || "-"}, {profileBirthDate ? new Date(profileBirthDate).toLocaleDateString("id-ID") : "-"}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block text-[9px] uppercase font-bold tracking-wider mb-0.5">Pendidikan Terakhir</span>
+                          <span className="text-slate-800 font-semibold">{profileEducation} — {profileMajor}</span>
                         </div>
                       </div>
                     </div>
 
                     {/* 1. Select Position */}
                     <div className="space-y-2.5">
-                      <label className="text-xs font-bold text-slate-300 tracking-wider uppercase block">
-                        Pilih Posisi Jabatan Sosro
+                      <label className="text-xs font-bold text-slate-700 tracking-wider uppercase block">
+                        Pilih Posisi Jabatan
                       </label>
                       <div className="relative">
                         <select
                           value={selectedJd}
                           onChange={(e) => setSelectedJd(e.target.value)}
                           disabled={status === "uploading" || status === "analyzing"}
-                          className="w-full h-11 rounded-lg border border-[#1e2f4d] bg-[#090d16] px-3.5 text-sm text-white font-medium shadow-inner transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 disabled:cursor-not-allowed disabled:opacity-40 appearance-none"
+                          className="w-full h-11 rounded-lg border border-slate-200 bg-white px-3.5 text-sm text-slate-800 font-medium shadow-sm transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-40 appearance-none"
                         >
-                          <option value="" disabled className="bg-[#070c17]">Pilih Posisi yang Ingin Dilamar...</option>
+                          <option value="" disabled className="bg-white">Pilih Posisi yang Ingin Dilamar...</option>
                           {jds.map(jd => (
-                            <option key={jd.id} value={jd.id} className="bg-[#070c17] py-2">
+                            <option key={jd.id} value={jd.id} className="bg-white py-2">
                               {jd.title}
                             </option>
                           ))}
@@ -669,7 +797,7 @@ export default function PelamarDashboard() {
 
                     {/* 2. Drag & Drop File Upload */}
                     <div className="space-y-2.5">
-                      <label className="text-xs font-bold text-slate-300 tracking-wider uppercase block">
+                      <label className="text-xs font-bold text-slate-700 tracking-wider uppercase block">
                         Unggah CV Format PDF
                       </label>
 
@@ -679,8 +807,8 @@ export default function PelamarDashboard() {
                         onDragLeave={handleDrag}
                         onDrop={handleDrop}
                         className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center transition-all duration-200 ${dragActive
-                            ? "border-emerald-500 bg-emerald-500/5 shadow-[0_0_20px_rgba(16,185,129,0.15)]"
-                            : "border-[#1e2f4d] bg-[#080d16] hover:bg-[#0a1122]/70 hover:border-slate-700"
+                            ? "border-sky-500 bg-sky-50/50 shadow-[0_0_20px_rgba(16,185,129,0.05)]"
+                            : "border-slate-200 bg-slate-50 hover:bg-slate-100/50 hover:border-slate-350"
                           }`}
                       >
                         <input
@@ -694,10 +822,10 @@ export default function PelamarDashboard() {
 
                         {!file ? (
                           <>
-                            <div className="h-12 w-12 rounded-full bg-slate-800/40 text-slate-400 flex items-center justify-center border border-slate-700/50 mb-3 group-hover:scale-110 transition-transform">
-                              <Upload className="h-5 w-5 text-slate-300 animate-bounce" />
+                            <div className="h-12 w-12 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center border border-slate-200 mb-3 group-hover:scale-110 transition-transform">
+                              <Upload className="h-5 w-5 text-slate-600 animate-bounce" />
                             </div>
-                            <p className="text-xs text-slate-300 font-bold mb-1 text-center">
+                            <p className="text-xs text-slate-700 font-bold mb-1 text-center">
                               Tarik dan taruh berkas CV Anda di sini, atau klik tombol di bawah
                             </p>
                             <p className="text-[10px] text-slate-500 mb-4 text-center">
@@ -706,34 +834,34 @@ export default function PelamarDashboard() {
 
                             <label
                               htmlFor="cv-upload"
-                              className="cursor-pointer inline-flex items-center justify-center whitespace-nowrap rounded-lg text-xs font-bold transition-all bg-[#1b253b] text-slate-200 hover:bg-slate-800 shadow-md h-9 px-4 py-2 border border-slate-700/80 active:scale-95"
+                              className="cursor-pointer inline-flex items-center justify-center whitespace-nowrap rounded-lg text-xs font-bold transition-all bg-white text-slate-800 hover:bg-slate-50 shadow-sm h-9 px-4 py-2 border border-slate-200 active:scale-95"
                             >
                               Pilih Berkas CV
                             </label>
                           </>
                         ) : (
                           <div className="w-full max-w-sm flex flex-col items-center">
-                            <div className="h-12 w-12 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30 mb-3">
+                            <div className="h-12 w-12 rounded-full bg-sky-50 text-sky-600 flex items-center justify-center border border-sky-100 mb-3">
                               <FileCheck className="h-5 w-5" />
                             </div>
-                            <p className="text-xs font-bold text-white text-center truncate w-full mb-1">
+                            <p className="text-xs font-bold text-slate-800 text-center truncate w-full mb-1">
                               {file.name}
                             </p>
-                            <p className="text-[10px] text-slate-400 mb-4">
+                            <p className="text-[10px] text-slate-500 mb-4">
                               Ukuran Berkas: {formatBytes(file.size)}
                             </p>
 
                             <div className="flex gap-2">
                               <label
                                 htmlFor="cv-upload"
-                                className="cursor-pointer text-[10px] font-bold text-slate-400 hover:text-white bg-[#0e1626] border border-[#1e2f4d] py-1.5 px-3 rounded-md transition-colors"
+                                className="cursor-pointer text-[10px] font-bold text-slate-650 hover:text-slate-800 bg-white border border-slate-200 py-1.5 px-3 rounded-md transition-colors shadow-sm"
                               >
                                 Ubah Berkas
                               </label>
                               <button
                                 type="button"
                                 onClick={() => setFile(null)}
-                                className="text-[10px] font-bold text-rose-400 hover:text-rose-300 bg-[#1f121d] border border-rose-950 py-1.5 px-3 rounded-md transition-colors"
+                                className="text-[10px] font-bold text-rose-600 hover:text-rose-700 bg-rose-50 border border-rose-100 py-1.5 px-3 rounded-md transition-colors shadow-sm"
                               >
                                 Hapus
                               </button>
@@ -753,56 +881,56 @@ export default function PelamarDashboard() {
 
                     {/* Processing Steps Checklist (Interactive loader) */}
                     {(status === "uploading" || status === "analyzing") && (
-                      <div className="p-4 bg-[#0a1122] border border-[#1c2c47] rounded-xl space-y-3.5">
-                        <div className="flex items-center gap-2 border-b border-[#1b2b48] pb-2">
-                          <Loader2 className="h-3.5 w-3.5 text-emerald-400 animate-spin" />
-                          <span className="text-xs font-bold text-white tracking-wide">AI Engine Processing Checklist</span>
+                      <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3.5">
+                        <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
+                          <Loader2 className="h-3.5 w-3.5 text-sky-600 animate-spin" />
+                          <span className="text-xs font-bold text-slate-800 tracking-wide">AI Engine Processing Checklist</span>
                         </div>
 
                         <div className="space-y-2">
                           {/* Step 1: Upload */}
                           <div className="flex items-center justify-between text-xs">
-                            <div className="flex items-center gap-2 text-slate-300">
+                            <div className="flex items-center gap-2 text-slate-600">
                               {status === "uploading" ? (
-                                <Loader2 className="h-3 w-3 text-emerald-400 animate-spin" />
+                                <Loader2 className="h-3 w-3 text-sky-600 animate-spin" />
                               ) : (
-                                <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+                                <CheckCircle2 className="h-3 w-3 text-sky-600" />
                               )}
-                              <span className={status !== "uploading" ? "text-slate-400 line-through" : "font-semibold text-white"}>
+                              <span className={status !== "uploading" ? "text-slate-400 line-through" : "font-semibold text-slate-800"}>
                                 Mengambil data & Ingest berkas CV
                               </span>
                             </div>
-                            <span className="text-[10px] text-slate-500">
+                            <span className="text-[10px] text-slate-550">
                               {status === "uploading" ? "Berjalan..." : "Selesai"}
                             </span>
                           </div>
 
                           {/* Step 2: AI suit */}
                           <div className="flex items-center justify-between text-xs">
-                            <div className="flex items-center gap-2 text-slate-400">
+                            <div className="flex items-center gap-2 text-slate-500">
                               {status === "uploading" ? (
-                                <div className="h-2 w-2 rounded-full bg-slate-700 ml-0.5" />
+                                <div className="h-2 w-2 rounded-full bg-slate-350 ml-0.5" />
                               ) : status === "analyzing" ? (
-                                <Loader2 className="h-3 w-3 text-emerald-400 animate-spin" />
+                                <Loader2 className="h-3 w-3 text-sky-600 animate-spin" />
                               ) : (
-                                <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+                                <CheckCircle2 className="h-3 w-3 text-sky-600" />
                               )}
-                              <span className={status === "analyzing" ? "font-semibold text-white" : ""}>
+                              <span className={status === "analyzing" ? "font-semibold text-slate-800" : ""}>
                                 Analisis Kecocokan Karir (AI Screening)
                               </span>
                             </div>
-                            <span className="text-[10px] text-slate-500">
+                            <span className="text-[10px] text-slate-550">
                               {status === "uploading" ? "Menunggu" : status === "analyzing" ? "Mengekstrak..." : "Selesai"}
                             </span>
                           </div>
 
                           {/* Step 3: Synced */}
                           <div className="flex items-center justify-between text-xs">
-                            <div className="flex items-center gap-2 text-slate-400">
-                              <div className="h-2 w-2 rounded-full bg-slate-700 ml-0.5" />
+                            <div className="flex items-center gap-2 text-slate-550">
+                              <div className="h-2 w-2 rounded-full bg-slate-350 ml-0.5" />
                               <span>Penyelarasan Indeks Dokumen HR</span>
                             </div>
-                            <span className="text-[10px] text-slate-500">Menunggu</span>
+                            <span className="text-[10px] text-slate-550">Menunggu</span>
                           </div>
                         </div>
                       </div>
@@ -810,12 +938,12 @@ export default function PelamarDashboard() {
 
                     {/* Success Banner */}
                     {status === "success" && (
-                      <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-start gap-3.5 animate-fadeIn">
-                        <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
+                      <div className="p-4 bg-sky-50 border border-sky-100 rounded-xl flex items-start gap-3.5 animate-fadeIn">
+                        <CheckCircle2 className="h-5 w-5 text-sky-600 shrink-0 mt-0.5" />
                         <div>
-                          <h4 className="text-xs font-extrabold text-white uppercase tracking-wider">Lamaran Berhasil Dikirim!</h4>
-                          <p className="text-[11px] text-slate-300 mt-1 leading-relaxed">
-                            Dokumen CV Anda telah berhasil kami unggah dan dianalisis kecocokannya oleh AI. Lamaran Anda saat ini telah masuk ke dalam antrean review oleh tim HR PT Sosro.
+                          <h4 className="text-xs font-extrabold text-sky-900 uppercase tracking-wider">🎉 Terima Kasih! Berkas Sudah Kami Terima</h4>
+                          <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+                            Berkas CV Anda sudah kami terima dan saat ini sedang dalam proses seleksi oleh tim HR. Informasi lebih lanjut mengenai hasil seleksi akan kami sampaikan secara berkala.
                           </p>
                         </div>
                       </div>
@@ -823,7 +951,7 @@ export default function PelamarDashboard() {
 
                     {/* Action button */}
                     <Button
-                      className="w-full bg-emerald-500 hover:bg-emerald-600 active:scale-98 font-bold text-white shadow-lg shadow-emerald-500/20 transition-all border-0 h-11 text-xs uppercase tracking-widest rounded-lg disabled:bg-slate-800 disabled:text-slate-500"
+                      className="w-full btn-figma hover:opacity-95 active:scale-98 font-bold text-white shadow-md transition-all border-0 h-11 text-xs uppercase tracking-widest rounded-lg disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-200 disabled:scale-100"
                       onClick={handleUpload}
                       disabled={!file || !selectedJd || status === "uploading" || status === "analyzing"}
                     >
@@ -837,13 +965,13 @@ export default function PelamarDashboard() {
 
           {/* History / Status Area (2 Columns) */}
           <div className="lg:col-span-2 space-y-6">
-            <Card className="bg-[#0d131f]/70 border-[#1f2d47] shadow-2xl backdrop-blur-sm">
-              <CardHeader className="border-b border-[#1b2b48] bg-[#111927]/60 pb-5">
-                <CardTitle className="text-base font-extrabold text-white flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-[#6fb7ff]" />
+            <Card className="bg-white border-slate-200 shadow-md">
+              <CardHeader className="border-b border-slate-100 bg-slate-50/50 pb-5">
+                <CardTitle className="text-base font-extrabold text-slate-800 flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-sky-500" />
                   Riwayat Lamaran Anda
                 </CardTitle>
-                <CardDescription className="text-xs text-slate-400">
+                <CardDescription className="text-xs text-slate-500">
                   Daftar CV dan posisi jabatan yang telah Anda lamar
                 </CardDescription>
               </CardHeader>
@@ -854,14 +982,14 @@ export default function PelamarDashboard() {
                     {userSubmissions.map((sub) => (
                       <div
                         key={sub.id}
-                        className="p-4 rounded-xl bg-[#080d16] border border-[#1b2b48] flex flex-col gap-3 hover:border-slate-700 transition-colors"
+                        className="p-4 rounded-xl bg-slate-50/50 border border-slate-100 flex flex-col gap-3 hover:border-slate-200 transition-colors shadow-sm"
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="space-y-1 min-w-0">
-                            <h4 className="text-xs font-bold text-white truncate max-w-[170px]" title={sub.jdTitle}>
+                            <h4 className="text-xs font-bold text-slate-800 truncate max-w-[170px]" title={sub.jdTitle}>
                               {sub.jdTitle}
                             </h4>
-                            <p className="text-[10px] text-slate-400 flex items-center gap-1">
+                            <p className="text-[10px] text-slate-500 flex items-center gap-1">
                               <Calendar className="h-3 w-3 shrink-0" />
                               {new Date(sub.uploadDate).toLocaleDateString("id-ID", {
                                 year: "numeric",
@@ -871,19 +999,19 @@ export default function PelamarDashboard() {
                             </p>
                           </div>
 
-                          <Badge className="bg-[#6fb7ff]/10 text-[#6fb7ff] border border-[#6fb7ff]/20 text-[9px] font-semibold py-0.5 px-2 rounded">
+                          <Badge className="bg-sky-50 text-sky-600 border border-sky-100 text-[9px] font-semibold py-0.5 px-2 rounded">
                             Terdokumentasi
                           </Badge>
                         </div>
 
-                        <div className="pt-2.5 border-t border-[#131d2e] flex items-center justify-between text-[10px] text-slate-400">
+                        <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500">
                           <div className="flex items-center gap-1.5 min-w-0">
-                            <FileText className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+                            <FileText className="h-3.5 w-3.5 text-slate-400 shrink-0" />
                             <span className="truncate max-w-[140px]" title={sub.cvFileName}>
                               {sub.cvFileName}
                             </span>
                           </div>
-                          <Badge className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[8px] py-0 px-1.5">
+                          <Badge className="bg-sky-50 text-sky-600 border border-sky-100 text-[8px] py-0 px-1.5 font-bold">
                             Dalam Review
                           </Badge>
                         </div>
@@ -891,10 +1019,10 @@ export default function PelamarDashboard() {
                     ))}
                   </div>
                 ) : (
-                  <div className="py-16 text-center rounded-xl border border-dashed border-[#1e2f4d] bg-[#070c17]/50">
-                    <FileUp className="h-10 w-10 mx-auto text-slate-700 mb-3" />
-                    <p className="text-xs font-bold text-slate-400">Belum Ada Lamaran Aktif</p>
-                    <p className="text-[10px] text-slate-500 max-w-[200px] mx-auto mt-1 leading-relaxed">
+                  <div className="py-16 text-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50">
+                    <FileUp className="h-10 w-10 mx-auto text-slate-400 mb-3" />
+                    <p className="text-xs font-bold text-slate-500">Belum Ada Lamaran Aktif</p>
+                    <p className="text-[10px] text-slate-400 max-w-[200px] mx-auto mt-1 leading-relaxed">
                       Silakan pilih posisi dan unggah berkas CV Anda untuk melihat riwayat proses seleksi di sini.
                     </p>
                   </div>
@@ -908,8 +1036,8 @@ export default function PelamarDashboard() {
       </main>
 
       {/* Footer */}
-      <footer className="py-6 mt-12 bg-[#050912] border-t border-[#131d30] text-center text-[10px] text-slate-500">
-        <p>© 2026 PT Sinar Sosro - RAG Recruitment System. Seluruh hak cipta dilindungi.</p>
+      <footer className="py-6 mt-12 bg-white border-t border-slate-200 text-center text-[10px] text-slate-500">
+        <p>© 2026 ISRE - RAG Recruitment System. Seluruh hak cipta dilindungi.</p>
       </footer>
     </div>
   );

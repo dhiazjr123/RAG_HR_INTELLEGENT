@@ -7,29 +7,15 @@ import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { AuthIllustration } from "@/components/auth-illustration";
-import { LoginRoleSelector } from "@/components/login-role-selector";
 import { useLanguage } from "@/components/language-provider";
-import {
-  getLoginIntent,
-  hasRole,
-  redirectPathForIntent,
-  roleAccessError,
-  setLoginIntent,
-  fetchServerRoles,
-  type LoginIntent,
-} from "@/lib/auth/roles";
+import { fetchServerRoles } from "@/lib/auth/roles";
 
 function LoginContent() {
   const supabase = createClient();
   const router = useRouter();
   const params = useSearchParams();
   const { t } = useLanguage();
-  const roleParam = params.get("role");
-  const initialRole: LoginIntent = roleParam === "admin" ? "admin" : roleParam === "pelamar" ? "pelamar" : "hr";
-  const defaultNext = initialRole === "admin" ? "/admin/jd-criteria" : initialRole === "pelamar" ? "/pelamar/dashboard" : "/";
-  const next = params.get("next") || defaultNext;
-
-  const [loginRole, setLoginRole] = useState<LoginIntent>(initialRole);
+  const next = params.get("next") || "/";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -39,7 +25,7 @@ function LoginContent() {
   const [err, setErr] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Jika sudah login → redirect sesuai role intent
+  // Jika sudah login → auto-detect redirect sesuai role
   useEffect(() => {
     let mounted = true;
     
@@ -47,13 +33,15 @@ function LoginContent() {
       try {
         const { data } = await supabase.auth.getUser();
         if (mounted && data.user) {
-          const intent = getLoginIntent();
           const roles = await fetchServerRoles();
-          const dest = hasRole(roles, intent)
-            ? redirectPathForIntent(intent)
-            : hasRole(roles, "admin")
-              ? "/admin/jd-criteria"
-              : "/";
+          let dest = "/";
+          if (roles.includes("admin")) {
+            dest = "/admin/jd-criteria";
+          } else if (roles.includes("pelamar")) {
+            dest = "/pelamar/dashboard";
+          } else if (roles.includes("hr")) {
+            dest = "/";
+          }
           router.replace(dest);
           router.refresh();
         }
@@ -68,15 +56,17 @@ function LoginContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    setLoginIntent(loginRole);
-  }, [loginRole]);
-
   // Kosongkan field saat mount untuk mengurangi autofill
   useEffect(() => {
     setEmail("");
     setPassword("");
     
+    // Cek apakah ada parameter registered dari halaman registrasi
+    const registered = params.get("registered");
+    if (registered === "true") {
+      setSuccess("Terima kasih sudah mendaftar! Akun Anda berhasil dibuat. Silakan cek email Anda untuk verifikasi sebelum login.");
+    }
+
     // Cek apakah ada parameter verified dari email verification
     const verified = params.get("verified");
     if (verified === "true") {
@@ -86,10 +76,8 @@ function LoginContent() {
 
     const errParam = params.get("error");
     if (errParam === "admin_required") {
-      setErr("Akun ini tidak memiliki akses Admin. Pilih login HR atau hubungi administrator.");
-      setLoginRole("admin");
+      setErr("Akun ini tidak memiliki akses Admin. Silakan hubungi administrator.");
     }
-    
   }, [params]);
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -97,17 +85,20 @@ function LoginContent() {
     setErr(null);
     setLoading(true);
     try {
-      setLoginIntent(loginRole);
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
 
       const roles = await fetchServerRoles();
-      if (!hasRole(roles, loginRole)) {
-        await supabase.auth.signOut();
-        throw new Error(roleAccessError(loginRole));
+      let dest = "/";
+      if (roles.includes("admin")) {
+        dest = "/admin/jd-criteria";
+      } else if (roles.includes("pelamar")) {
+        dest = "/pelamar/dashboard";
+      } else if (roles.includes("hr")) {
+        dest = "/";
       }
 
-      router.replace(redirectPathForIntent(loginRole));
+      router.replace(dest);
       router.refresh();
     } catch (e: any) {
       setErr(e.message || "Login gagal");
@@ -119,12 +110,10 @@ function LoginContent() {
 
   const loginWithGoogle = async () => {
     const supabase = createClient();
-    setLoginIntent(loginRole);
-    const dest = redirectPathForIntent(loginRole);
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${location.origin}/auth/callback?next=${encodeURIComponent(dest)}`,
+        redirectTo: `${location.origin}/auth/callback?next=/`,
         queryParams: {
           access_type: "offline",
           prompt: "consent",
@@ -139,10 +128,8 @@ function LoginContent() {
       {/* Kiri: form */}
       <div className="flex items-center justify-center p-8">
         <div className="w-full max-w-md">
-          <h1 className="text-3xl font-extrabold text-center mb-2 text-slate-800 tracking-tight">{t("login.title")}</h1>
-          <p className="text-center text-sm text-muted-foreground mb-6">PT Sosro Gunung Slamet</p>
+          <h1 className="text-3xl font-extrabold text-center mb-6 text-slate-800 tracking-tight">{t("login.title")}</h1>
 
-          <LoginRoleSelector value={loginRole} onChange={setLoginRole} />
 
           <form onSubmit={onSubmit} className="space-y-4" autoComplete="off">
             {/* autofill trap */}
@@ -202,13 +189,12 @@ function LoginContent() {
                   {t("login.remember")}
                 </label>
 
-                <button
-                  type="button"
-                  className="text-xs text-gradient hover:underline"
-                  onClick={() => router.push("/forgot-password")}
+                <a
+                  href={`/forgot-password?next=${encodeURIComponent(next)}`}
+                  className="text-xs text-blue-600 hover:text-blue-800 hover:underline font-semibold"
                 >
                   {t("login.forgotPassword")}
-                </button>
+                </a>
               </div>
             </div>
 
@@ -258,7 +244,7 @@ function LoginContent() {
 
           <p className="text-xs text-muted-foreground mt-6 text-center">
             {t("login.noAccount")}{" "}
-            <a className="text-gradient hover:underline" href={`/register?next=${encodeURIComponent(next)}`}>
+            <a className="text-blue-600 hover:text-blue-800 hover:underline font-semibold" href={`/register?next=${encodeURIComponent(next)}`}>
               {t("login.createAccount")}
             </a>
           </p>

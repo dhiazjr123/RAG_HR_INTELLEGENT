@@ -323,12 +323,10 @@ export default function SettingPage() {
                 </div>
                 <div className="pt-2">
                   <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-2 rounded-xl transition-all duration-300 hover:bg-blue-500/10 hover:border-blue-500/40 hover:text-blue-300"
                     onClick={() => router.push("/forgot-password")}
+                    className="btn-figma border-0 text-white gap-2 rounded-xl transition-all duration-300 shadow-md font-semibold px-4 py-2 h-9 text-xs active:scale-98"
                   >
-                    <Key className="h-4 w-4 text-blue-400" />
+                    <Key className="h-3.5 w-3.5" />
                     {t("settings.akun.changePassword")}
                   </Button>
                 </div>

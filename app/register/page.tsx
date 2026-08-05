@@ -8,7 +8,6 @@ import { createClient } from "@/lib/supabase/client";
 import Image from "next/image";
 import { AuthIllustration } from "@/components/auth-illustration";
 import { useLanguage } from "@/components/language-provider";
-import { LoginRoleSelector } from "@/components/login-role-selector";
 import { type LoginIntent } from "@/lib/auth/roles";
 
 function RegisterContent() {
@@ -17,12 +16,10 @@ function RegisterContent() {
   const params = useSearchParams();
   const { t } = useLanguage();
   const next = params.get("next") || "/";
-  const roleParam = params.get("role");
-  const initialRole: LoginIntent = roleParam === "admin" ? "admin" : roleParam === "pelamar" ? "pelamar" : "hr";
-
-  const [registerRole, setRegisterRole] = useState<LoginIntent>(initialRole);
+  const registerRole: LoginIntent = "pelamar";
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [agree, setAgree] = useState(false);
@@ -38,6 +35,7 @@ function RegisterContent() {
   useEffect(() => {
     setUsername("");
     setEmail("");
+    setPhone("");
     setPassword("");
     setConfirm("");
   }, []);
@@ -69,7 +67,7 @@ function RegisterContent() {
         email,
         password,
         options: {
-          data: { username, full_name: username, name: username, app_role: registerRole },
+          data: { username, full_name: username, name: username, app_role: registerRole, phone },
           emailRedirectTo: `${location.origin}/auth/callback?type=signup&next=${encodeURIComponent(
             next
           )}`,
@@ -87,7 +85,7 @@ function RegisterContent() {
 
       // Arahkan ke /login biar user langsung coba login setelah verifikasi
       setTimeout(() => {
-        router.replace(`/login?next=${encodeURIComponent(next)}`);
+        router.replace(`/login?registered=true&next=${encodeURIComponent(next)}`);
       }, 1800);
     } catch (e: any) {
       setErr(e?.message || "Sign up gagal");
@@ -104,7 +102,7 @@ function RegisterContent() {
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+        redirectTo: `${location.origin}/auth/callback?intent=pelamar&next=${encodeURIComponent("/pelamar/dashboard")}`,
       },
     });
   };
@@ -116,7 +114,6 @@ function RegisterContent() {
         <div className="w-full max-w-md">
           <h1 className="text-3xl font-extrabold text-center mb-8 text-slate-800 tracking-tight">{t("register.title")}</h1>
 
-          <LoginRoleSelector value={registerRole} onChange={setRegisterRole} isRegister />
 
           <form onSubmit={onSubmit} className="space-y-4" autoComplete="off">
             {/* ===== Autofill trap: biar Chrome isi di sini, bukan field kita ===== */}
@@ -173,6 +170,23 @@ function RegisterContent() {
                 autoComplete="off"
                 autoCapitalize="none"
                 spellCheck={false}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/40"
+              />
+            </div>
+
+            {/* PHONE NUMBER */}
+            <div className="space-y-1">
+              <label className="text-sm" htmlFor="phone">
+                {t("register.phone")}
+              </label>
+              <input
+                id="phone"
+                name="reg_phone"
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="081234567890"
+                autoComplete="off"
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/40"
               />
             </div>
@@ -312,7 +326,7 @@ function RegisterContent() {
             <p className="text-xs text-muted-foreground mt-6 text-center">
               {t("register.hasAccount")}{" "}
               <a
-                className="text-gradient hover:underline"
+                className="text-blue-600 hover:text-blue-800 hover:underline font-semibold"
                 href={`/login?next=${encodeURIComponent(next)}`}
               >
                 {t("register.login")}

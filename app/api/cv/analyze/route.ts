@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getJdCriteriaById } from "@/lib/jd-criteria-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,10 +39,18 @@ Aturan Penting:
 
 export async function POST(req: Request) {
   try {
-    const { cvText, jdTitle, jdCriteria, retrievedContext, avgSimilarity } = await req.json();
+    const { cvText, jdTitle, jdId, jdCriteria: clientJdCriteria, retrievedContext, avgSimilarity } = await req.json();
 
-    if (!cvText || !jdTitle) {
-      return NextResponse.json({ error: "Missing cvText or jdTitle" }, { status: 400 });
+    if (!cvText || (!jdTitle && !jdId)) {
+      return NextResponse.json({ error: "Missing cvText or jdTitle/jdId" }, { status: 400 });
+    }
+
+    let finalJdCriteria = clientJdCriteria || "";
+    if (!finalJdCriteria && jdId) {
+      const matchStore = await getJdCriteriaById(jdId);
+      if (matchStore?.fullText) {
+        finalJdCriteria = matchStore.fullText;
+      }
     }
 
     const similarityPercentage = typeof avgSimilarity === "number"
@@ -49,8 +58,8 @@ export async function POST(req: Request) {
       : "50";
 
     const userMsg = `Berikut adalah profil posisi yang dilamar:
-POSISI: ${jdTitle}
-KRITERIA: ${jdCriteria || "Tidak ada detail kriteria tambahan."}
+POSISI: ${jdTitle || "Posisi"}
+KRITERIA: ${finalJdCriteria || "Tidak ada detail kriteria tambahan."}
 
 KUTIPAN RELEVAN HASIL RETRIEVAL (RAG) DARI CV:
 ${retrievedContext || "Tidak ada kutipan spesifik yang ditemukan."}

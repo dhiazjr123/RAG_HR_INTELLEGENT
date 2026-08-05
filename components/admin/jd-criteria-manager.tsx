@@ -17,11 +17,13 @@ import {
 } from "@/lib/jd-criteria-client";
 import { cn } from "@/lib/utils";
 import {
+  Bell,
   Briefcase,
   Building2,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  Clock,
   FileText,
   MapPin,
   Pencil,
@@ -253,6 +255,58 @@ export function JdCriteriaManager() {
             gradient="linear-gradient(135deg, #2ed573 0%, #1abc9c 100%)"
           />
         </div>
+
+        {/* Banner Notifikasi Respons HR */}
+        {(() => {
+          const respondedItems = criteria.filter((c) => c.hrRespondedAt);
+          const pendingWithoutResponse = criteria.filter(
+            (c) => c.approvalStatus === "pending" && !c.hrRespondedAt
+          );
+
+          if (respondedItems.length === 0 && pendingWithoutResponse.length === 0) {
+            return null;
+          }
+
+          const approvedCount = respondedItems.filter((c) => c.approvalStatus === "approved").length;
+          const pendingCount = respondedItems.filter((c) => c.approvalStatus === "pending").length;
+
+          return (
+            <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-sm space-y-3">
+              <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <Bell className="h-5 w-5 text-amber-500 animate-bounce" />
+                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-800">
+                    Status Konfirmasi & Respons HR
+                  </h3>
+                </div>
+                <Badge variant="outline" className="text-[10px] border-slate-200 text-slate-700 bg-slate-50 font-bold">
+                  {respondedItems.length} Posisi Direspons HR
+                </Badge>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 text-xs font-medium">
+                {pendingWithoutResponse.length > 0 && (
+                  <span className="inline-flex items-center gap-1.5 bg-sky-50 text-sky-800 px-3 py-1.5 rounded-xl border border-sky-200/80 font-bold">
+                    <Clock className="h-4 w-4 text-sky-600" />
+                    <strong>{pendingWithoutResponse.length}</strong> posisi belum direspons HR
+                  </span>
+                )}
+                {approvedCount > 0 && (
+                  <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-800 px-3 py-1.5 rounded-xl border border-emerald-200/80 font-bold">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                    <strong>{approvedCount}</strong> posisi disetujui HR (Aktif)
+                  </span>
+                )}
+                {pendingCount > 0 && (
+                  <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-900 px-3 py-1.5 rounded-xl border border-amber-200/80 font-bold">
+                    <Clock className="h-4 w-4 text-amber-600" />
+                    <strong>{pendingCount}</strong> posisi HR minta pending
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Search & filter toolbar */}
         <div className="space-y-4 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
@@ -586,6 +640,21 @@ function JdCard({
                 {isOfficial && (
                   <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/30 text-[10px]">
                     U&KJ Resmi
+                  </Badge>
+                )}
+                {item.approvalStatus === "pending" && !item.hrRespondedAt && (
+                  <Badge className="bg-sky-50 text-sky-700 border-sky-200 text-[10px] font-bold">
+                    🕐 Menunggu Konfirmasi HR
+                  </Badge>
+                )}
+                {item.approvalStatus === "pending" && item.hrRespondedAt && (
+                  <Badge className="bg-amber-50 text-amber-800 border-amber-300 text-[10px] font-bold">
+                    ⏳ Pending HR: {item.pendingReason || "Menunggu konfirmasi"}
+                  </Badge>
+                )}
+                {item.approvalStatus === "approved" && item.hrRespondedAt && (
+                  <Badge className="bg-emerald-50 text-emerald-700 border-emerald-300 text-[10px] font-bold">
+                    ✅ Disetujui HR
                   </Badge>
                 )}
               </div>

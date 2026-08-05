@@ -82,10 +82,10 @@ const FILE_TYPE_CONFIGS: FileTypeConfig[] = [
     label: "Excel",
     extensions: ["xls", "xlsx", "csv"],
     Icon: FileSpreadsheet,
-    gradient: "from-emerald-400 to-green-600",
-    iconBg: "bg-emerald-500/15",
-    iconColor: "text-emerald-500",
-    borderActive: "border-emerald-500/40",
+    gradient: "from-sky-400 to-blue-600",
+    iconBg: "bg-sky-500/15",
+    iconColor: "text-sky-500",
+    borderActive: "border-sky-500/40",
   },
   {
     key: "image",
@@ -706,7 +706,7 @@ function DocListRow({
         className={cn(
           "w-0.5 h-8 rounded-full shrink-0",
           cv
-            ? "bg-emerald-400"
+            ? "bg-sky-400"
             : "bg-gradient-to-b from-[#6fb7ff] to-[#1d45f3]"
         )}
       />
@@ -742,7 +742,7 @@ function DocListRow({
           {doc.type}
         </Badge>
         {cv && (
-          <Badge className="text-[10px] bg-emerald-500/15 text-emerald-600 border-emerald-500/30">
+          <Badge className="text-[10px] bg-sky-500/15 text-sky-600 border-sky-500/30">
             CV
           </Badge>
         )}

@@ -43,6 +43,30 @@ export async function GET(req: Request) {
     );
   }
 
+  // Ambil data user
+  const { data: { user: currentUser } } = await supabase.auth.getUser();
+
+  if (currentUser) {
+    const intent = url.searchParams.get("intent");
+    const roles = getUserRoles(currentUser);
+    const hasAppRole = !!currentUser.app_metadata?.app_role;
+    const userMetaRole = currentUser.user_metadata?.app_role;
+
+    // Jika belum punya role di app_metadata dan terdeteksi sebagai pelamar
+    if (!hasAppRole && (userMetaRole === "pelamar" || intent === "pelamar" || type === "signup")) {
+      try {
+        const origin = new URL(req.url).origin;
+        await fetch(`${origin}/api/auth/set-role`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: currentUser.id, role: "pelamar" }),
+        });
+      } catch (err) {
+        console.error("Failed to auto-set role in callback:", err);
+      }
+    }
+  }
+
   // Jika ini email verification (type=signup), logout user dan arahkan ke login
   if (type === "signup") {
     await supabase.auth.signOut();

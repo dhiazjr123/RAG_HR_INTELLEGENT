@@ -26,7 +26,10 @@ async function ensureStore(): Promise<StoreFile> {
 
   const seeded: StoreFile = {
     updatedAt: new Date().toISOString(),
-    criteria: PARTNER_JD_CRITERIA,
+    criteria: PARTNER_JD_CRITERIA.map((c) => ({
+      ...c,
+      approvalStatus: c.approvalStatus || "approved",
+    })),
   };
   await fs.mkdir(DATA_DIR, { recursive: true });
   await fs.writeFile(STORE_PATH, JSON.stringify(seeded, null, 2), "utf-8");
@@ -48,7 +51,12 @@ export async function listJdCriteria(): Promise<{
   updatedAt: string;
 }> {
   const store = await ensureStore();
-  return { criteria: store.criteria, updatedAt: store.updatedAt };
+  // Ensure default approvalStatus for legacy items
+  const criteria = store.criteria.map((c) => ({
+    ...c,
+    approvalStatus: c.approvalStatus || "approved",
+  }));
+  return { criteria, updatedAt: store.updatedAt };
 }
 
 export async function getJdCriteriaById(id: string): Promise<PartnerJobCriteria | undefined> {
@@ -63,9 +71,15 @@ export async function createJdCriteria(
   if (criteria.some((c) => c.id === item.id)) {
     throw new Error(`ID kriteria "${item.id}" sudah digunakan.`);
   }
-  const next = [...criteria, item];
+  const newItem = {
+    ...item,
+    approvalStatus: item.approvalStatus || "pending",
+    pendingAt: item.pendingAt || new Date().toISOString(),
+    hrRespondedAt: undefined,
+  };
+  const next = [...criteria, newItem];
   await writeStore(next);
-  return item;
+  return newItem;
 }
 
 export async function updateJdCriteria(
@@ -82,7 +96,33 @@ export async function updateJdCriteria(
   }
 
   const next = [...criteria];
-  next[idx] = { ...item, id: nextId };
+  next[idx] = {
+    ...item,
+    id: nextId,
+    approvalStatus: "pending",
+    pendingAt: new Date().toISOString(),
+    hrRespondedAt: undefined,
+  };
+  await writeStore(next);
+  return next[idx];
+}
+
+export async function approveJdCriteria(
+  id: string,
+  approve: boolean,
+  reason?: string
+): Promise<PartnerJobCriteria> {
+  const { criteria } = await listJdCriteria();
+  const idx = criteria.findIndex((c) => c.id === id);
+  if (idx < 0) throw new Error(`Kriteria "${id}" tidak ditemukan.`);
+
+  const next = [...criteria];
+  next[idx] = {
+    ...next[idx],
+    approvalStatus: approve ? "approved" : "pending",
+    pendingReason: approve ? undefined : (reason || "Menunggu konfirmasi HR"),
+    hrRespondedAt: new Date().toISOString(),
+  };
   await writeStore(next);
   return next[idx];
 }

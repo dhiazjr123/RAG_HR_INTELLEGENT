@@ -10,6 +10,8 @@ import {
   narrowContextForFollowUp,
   narrowContextForNamedComparison,
   narrowContextForQuery,
+  parseCvOnlySegments,
+  resolveActiveCriteria,
   type ChatHistoryTurn,
   type HrQueryKind,
 } from "@/lib/recruiter-ranking";
@@ -177,8 +179,8 @@ const recruiterPromptGroqBody =
   `Anda AI recruiter senior. Jawab sesuai maksud pertanyaan HR (sapaan, profil satu kandidat, screening, atau perbandingan). Hanya gunakan teks konteks (JD + CV). Markdown: ## ### bullet "- ".
 Aturan:
 1. Segmen [[[CV_ONLY filename:...]]] ... [[[/CV_ONLY filename:...]]] — satu file = satu kandidat; jangan campur antar file.
-2. Jika HR minta **profil / data diri** satu orang: format ## Profil [Nama], tanpa skor JD, tanpa kandidat lain.
-3. Jika HR minta **cocok / terbaik / bandingkan**: boleh skor JD dan ## Rekomendasi utama.
+2. Jika HR minta **profil / data diri** satu orang: format ## Profil [Nama], tanpa tingkat kesesuaian, tanpa kandidat lain.
+3. Jika HR minta **cocok / terbaik / bandingkan**: boleh tingkat kesesuaian (Sangat Sesuai/Sesuai/Cukup Sesuai/Kurang Sesuai) dan ## Rekomendasi utama. Jangan gunakan skor angka.
 4. Kutipan hanya dari CV kandidat yang dimaksud.
 5. Di bagian bukti eksplisit, jangan kutip baris judul posisi lama / nama instansi (misal: "Modern Packaging Technician - PT Maju"), melainkan keahlian atau tugas riil.
 === KONTEN KONTEKS MULAI ===
@@ -335,6 +337,38 @@ export async function POST(req: Request) {
       limitedContext = narrowContextForNamedComparison(limitedContext, qStr);
     }
 
+    const cvSegments = parseCvOnlySegments(limitedContext);
+    const cvCount = cvSegments.length;
+
+    // Helper: Cek apakah HR menanyakan hal terkait kandidat/screening/kecocokan
+    const isCandidateQuery = (query: string, kind: HrQueryKind): boolean => {
+      if (kind === "top_n" || kind === "single_candidate" || kind === "list_names") return true;
+      const s = query.toLowerCase();
+      const isPureJdQuery =
+        /(?:apa|sebutkan|tunjukkan|apa\s+saja)\s+(?:saja\s+)?(?:kriteria|persyaratan|tugas|fungsi|wewenang|kualifikasi|syarat|uraian|job\s*description|deskripsi)\b/i.test(s) &&
+        !/(?:siapa|kandidat|pelamar|cv|cocok|sesuai|screening|ranking|rekomendasi)/i.test(s);
+      if (isPureJdQuery) return false;
+
+      const kw = [
+        "kandidat", "pelamar", "cocok", "sesuai", "screening", "ranking", "peringkat",
+        "rekomendasi", "terbaik", "unggul", "siapa", "bandingkan", "profil", "cv", "resume",
+        "nilai", "skor", "lolos", "gugur", "wawancara", "interview"
+      ];
+      return kw.some((k) => s.includes(k));
+    };
+
+    // === ATURAN ANTI-HALUSINASI 0 CV: Jangan biarkan LLM mengarang nama kandidat bila 0 CV terunggah
+    if (cvCount === 0 && isCandidateQuery(qStr, queryKind)) {
+      const activeRole =
+        activeCriteria?.title ||
+        resolveActiveCriteria(activeCriteria, limitedContext)?.title ||
+        "posisi ini";
+      return NextResponse.json({
+        answer: `## Belum Ada CV Diunggah\n\nPada evaluasi posisi **${activeRole}**, belum ada dokumen CV pelamar yang diunggah ke dalam sistem (0 CV).\n\nSilakan unggah dokumen CV kandidat terlebih dahulu melalui tombol **Upload CV** di bagian kanan atas untuk memulai proses screening dan analisis kecocokan kandidat.`,
+        sources: [],
+      });
+    }
+
     // === AI Recruiter: screening CV, cocokkan JD, skor, alasan, pro/kontra
     // Promp diperbarui agar memiliki kemampuan reasoning menyerupai asisten pintar (Gemini/ChatGPT)
     const recruiterPromptBody =
@@ -345,20 +379,20 @@ SUMBER DATA (Hanya data di bawah ini yang valid):
 - Curriculum Vitae (CV): Blok bertanda [CV - nama_file] atau segmen teks yang jelas diidentifikasi sebagai data pelamar kerja.
 - Gunakan penanda awal **=== DAFTAR SUMBER ===** untuk memvalidasi seluruh berkas CV yang masuk ke dalam sistem. Jangan melewatkan dokumen apa pun saat proses screening komparatif.
 
-SISTEM PENILAIAN & SKOR KECOCOKAN (Wajib Objektif dan Tepercaya):
-1. Berikan penilaian menggunakan rentang skor bilangan bulat berharga 0-100 dengan format kaku: "**Skor kecocokan JD:** XX/100".
-2. Aturan Perhitungan Skor (evaluasi **holistik CV**, bukan sekadar keyword):
-   - Skor mencerminkan **cakupan persyaratan JD** + **kedalaman** pengalaman/proyek + **jumlah skill** relevan di CV.
-   - Kandidat dengan **lebih banyak** bukti pengalaman/skill sesuai JD harus **skor lebih tinggi** daripada yang hanya punya 1–2 kata kunci cocok.
-   - Prioritaskan bukti di bagian **Pengalaman/Proyek** di atas daftar skill saja.
-   - **Skor >= 70 (Tinggi/Lolos):** bukti riil pengalaman proyek/peran kerja/stack spesifik selaras JD — semakin banyak bukti, semakin tinggi skor.
-   - **Skor < 40 (Rendah/Tidak Lolos):** CV tipis atau tidak ada pengalaman/skill relevan JD.
-   - Ikuti urutan peringkat sinyal sistem (DAFTAR PERINGKAT) bila disertakan; jangan balik urutan tanpa alasan bukti CV.
+SISTEM PENILAIAN & TINGKAT KESESUAIAN (Wajib Objektif dan Tepercaya):
+1. Berikan penilaian tingkat kesesuaian menggunakan kategori kualitatif dengan format kaku: "**Tingkat Kesesuaian:** [Sangat Sesuai / Sesuai / Cukup Sesuai / Kurang Sesuai]". Jangan pernah menampilkan skor angka (seperti XX/100).
+2. Aturan Klasifikasi Kesesuaian (evaluasi holistik berdasarkan bukti CV, bukan sekadar keyword):
+   - **Sangat Sesuai:** Jika pelamar memiliki bukti riil pengalaman proyek/peran kerja/stack spesifik yang sangat selaras dengan kriteria utama JD.
+   - **Sesuai:** Jika sebagian besar kriteria utama/dasar JD terpenuhi, dengan beberapa gap minor yang perlu diklarifikasi.
+   - **Cukup Sesuai:** Jika hanya sebagian kecil kriteria dasar yang terpenuhi dan memiliki kesenjangan kualifikasi yang signifikan.
+   - **Kurang Sesuai:** Jika bukti di CV sangat minim atau tidak relevan dengan kriteria lowongan kerja.
+   - Ikuti urutan peringkat sinyal sistem (DAFTAR PERINGKAT) bila disertakan.
 
 ATURAN ANTI-HALUSINASI & DETEKSI DOKUMEN:
 1. **Penyaringan Berbasis Segmen (Anti Silang Dokumen):** Konteks dipisahkan oleh penanda \"[[[CV_ONLY filename:NAMAFILE]]]\" hingga \"[[[/CV_ONLY]]]\". Evaluasi terhadap kandidat pemilik NAMAFILE hanya boleh mengambil informasi dari dalam segmen dokumen tersebut. Anda dilarang keras memindahkan keahlian, riwayat proyek, atau sertifikasi milik kandidat lain ke profil kandidat ini.
 2. **Ekstraksi Nama Nyata:** Judul sub-bagian wajib menggunakan nama asli pelamar kerja yang diekstrak langsung dari isi teks CV, bukan menyalin nama file atau placeholder mentah. Format judul: "### [Nama Pelamar Nyata] (CV: nama_file.pdf)". Jika nama tidak ditemukan di dalam teks dokumen, tuliskan: "### Nama tidak tersurat (CV: nama_file.pdf)".
 3. Jika dokumen CV dipersingkat atau terpotong (ditandai dengan "[... context truncated ...]"), sebutkan keterbatasan analisis tersebut secara jujur pada bagian kekurangan/risiko, tanpa mengarang informasi tambahan.
+4. **Deteksi 0 CV (DILARANG MENGARANG):** Jika tidak ada segmen [[[CV_ONLY]]] atau daftar sumber menyatakan '0 file', DILARANG KERAS membuat, mengarang, atau merekomendasikan nama kandidat fiktif (seperti Rizky, Ahmad, dll) maupun file CV fiktif. Katakan secara jujur dan tegas bahwa belum ada CV yang diunggah untuk posisi tersebut.
 
 FORMAT JAWABAN MARKDOWN (Struktur Rapi, Bersih, dan Komparatif):
 
@@ -372,7 +406,7 @@ FORMAT JAWABAN MARKDOWN (Struktur Rapi, Bersih, dan Komparatif):
 
 Setiap ulasan blok heading-3 (###) wajib mengikuti format detail berikut:
 ### [Salin Nama Nyata dari Teks CV] (CV: nama_file.pdf)
-- **Skor kecocokan JD:** XX/100
+- **Tingkat Kesesuaian:** [Sangat Sesuai / Sesuai / Cukup Sesuai / Kurang Sesuai]
 - **Bukti eksplisit di CV (hanya dari CV orang ini):**
   - Tuliskan maksimal 2 bullet point saja yang komplit dan kohesif:
     - Bullet 1: **Pengalaman:** Gabungkan rincian tugas/tanggung jawab/pengalaman kerja riil yang paling relevan (misal: "Terbiasa mengoperasikan mesin pengemasan modern, menjaga kebersihan, serta melakukan pencatatan hasil produksi").
@@ -381,8 +415,8 @@ Setiap ulasan blok heading-3 (###) wajib mengikuti format detail berikut:
   - Jika dokumen kosong atau tidak relevan, tulis secara tegas: "CV tidak mencantumkan pengalaman kerja, skill teknis, proyek, atau peran apa pun yang diminta".
 - **Tidak tercantum / tidak ada bukti di CV:**
   - Sebutkan kriteria atau kualifikasi penting pada dokumen JD yang tidak mampu dibuktikan keberadaannya di dalam teks CV pelamar ini.
-- **Alasan skor:**
-  - Jelaskan dasar logis penentuan nilai skor di atas dengan menghubungkan ketersediaan bukti konkret terhadap kesenjangan (*gap*) pemenuhan kriteria lowongan.
+- **Alasan Rekomendasi:**
+  - Jelaskan dasar logis penentuan kategori tingkat kesesuaian di atas dengan menghubungkan ketersediaan bukti konkret terhadap kesenjangan (*gap*) pemenuhan kriteria lowongan.
 - **Kelebihan:**
   - Poin plus dan potensi kompetensi pelamar yang tertulis di teks dokumen.
 - **Kekurangan / risiko:**

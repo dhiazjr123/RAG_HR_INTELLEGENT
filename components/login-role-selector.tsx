@@ -48,7 +48,7 @@ const ROLES: {
     pillClass: "login-role-pill-admin", // Reusing admin classes for color for now
     btnClass: "login-role-btn-admin",
     descClass: "login-role-desc-admin",
-    iconAccent: "text-emerald-500",
+    iconAccent: "text-sky-500",
   },
 ];
 
